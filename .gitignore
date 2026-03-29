@@ -1,0 +1,26 @@
+venv/
+.venv/
+env/
+
+# 2. Caché de Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+.env
+
+
+uploads/
+*.mp4
+*.avi
+*.mov
+
+
+*.pt
+yolo11n.pt
+
+.vscode/
+.idea/
+.DS_Store
+__MACOSX/

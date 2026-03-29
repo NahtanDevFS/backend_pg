@@ -1,0 +1,7 @@
+fastapi==0.110.0
+uvicorn[standard]==0.27.1
+sqlalchemy==2.0.28
+psycopg2-binary==2.9.9
+python-dotenv==1.0.1
+ultralytics==8.1.0 #librería oficial que contiene YOLOv8 y YOLO11
+python-multipart==0.0.9 #necesario para subir videos
