@@ -9,12 +9,12 @@ router = APIRouter(tags=["Autenticación"])
 
 @router.post("/login")
 def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    usuario = db.query(models.Usuario).filter(models.Usuario.email == form_data.username).first()
+    usuario = db.query(models.Usuario).filter(models.Usuario.nombre == form_data.username).first()
 
     if not usuario or not verify_password(form_data.password, usuario.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Email o contraseña incorrectos",
+            detail="Usuario o contraseña incorrectos",
             headers={"WWW-Authenticate": "Bearer"},
         )
 

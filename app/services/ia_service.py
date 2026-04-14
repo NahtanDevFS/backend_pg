@@ -1,11 +1,10 @@
 import cv2
 from ultralytics import YOLO
 
-
 class ProcesadorVideoYOLO:
-    def __init__(self, modelo_path: str = "yolo11n.pt"):
+    def __init__(self, modelo_path: str = "best.pt"):
         self.model = YOLO(modelo_path)
-        self.clase_manzana_id = 47
+        print("Clases entrenadas en este modelo:", self.model.names)
 
     def procesar(self, video_entrada_path: str, video_salida_path: str) -> dict:
         print(f"Iniciando procesamiento de video: {video_entrada_path}")
@@ -19,23 +18,22 @@ class ProcesadorVideoYOLO:
         fps = int(cap.get(cv2.CAP_PROP_FPS))
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
-        cuatrocc = cv2.VideoWriter_fourcc(*'mp4v')
+        cuatrocc = cv2.VideoWriter_fourcc(*'avc1')
         out = cv2.VideoWriter(video_salida_path, cuatrocc, fps, (width, height))
 
-        ids_manzanas_unicas = set()
+        ids_melones_unicos = set()
         frames_procesados = 0
 
-        porcentaje_margen = 0.10  #ignorar el 10% de los bordes externos
+        porcentaje_margen = 0.10
         margen_x = int(width * porcentaje_margen)
         margen_y = int(height * porcentaje_margen)
 
         resultados_track = self.model.track(
             source=video_entrada_path,
             persist=True,
-            classes=[self.clase_manzana_id],
             stream=True,
             verbose=False,
-            conf=0.35,
+            conf=0.5,
             iou=0.5,
             tracker="bytetrack.yaml"
         )
@@ -49,12 +47,11 @@ class ProcesadorVideoYOLO:
                 img=frame_anotado,
                 pt1=(margen_x, margen_y),
                 pt2=(width - margen_x, height - margen_y),
-                color=(255, 0, 0),  #azul en BGR
+                color=(255, 0, 0),
                 thickness=2
             )
 
             if resultado.boxes.id is not None:
-                #se obtiene las coordenadas de la caja [x1, y1, x2, y2] y los IDs
                 cajas = resultado.boxes.xyxy.cpu().numpy()
                 track_ids = resultado.boxes.id.int().cpu().tolist()
 
@@ -65,10 +62,10 @@ class ProcesadorVideoYOLO:
                     centro_y = (y1 + y2) / 2
 
                     if (margen_x < centro_x < (width - margen_x)) and (margen_y < centro_y < (height - margen_y)):
-                        ids_manzanas_unicas.add(track_id)
+                        ids_melones_unicos.add(track_id)
 
-            conteo_actual = len(ids_manzanas_unicas)
-            texto_conteo = f"Manzanas Contadas: {conteo_actual}"
+            conteo_actual = len(ids_melones_unicos)
+            texto_conteo = f"Melones Contados: {conteo_actual}"
 
             cv2.putText(
                 img=frame_anotado,
@@ -90,8 +87,8 @@ class ProcesadorVideoYOLO:
         out.release()
         cv2.destroyAllWindows()
 
-        cantidad_total = len(ids_manzanas_unicas)
-        print(f"Procesamiento finalizado. Manzanas únicas contadas: {cantidad_total}")
+        cantidad_total = len(ids_melones_unicos)
+        print(f"Procesamiento finalizado. Melones únicos contados: {cantidad_total}")
 
         return {
             "maduros": cantidad_total,

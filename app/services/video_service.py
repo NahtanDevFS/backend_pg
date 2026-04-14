@@ -51,13 +51,12 @@ def tarea_procesar_video(procesamiento_id: int, nombre_archivo: str):
         procesamiento.video_anotado_url = nombre_salida
         procesamiento.estado = "completado"
 
-        resultado_ia = models.ResultadoIA(
+        resultado_final = models.Resultado(
             procesamiento_id=procesamiento.id,
-            conteo_maduros=resultados["maduros"],
-            conteo_inmaduros=resultados["inmaduros"],
+            conteo_ia=resultados["maduros"],
             tiempo_procesamiento_seg=resultados["tiempo_segundos"]
         )
-        db.add(resultado_ia)
+        db.add(resultado_final)
         db.commit()
 
     except Exception as e:
