@@ -1,34 +1,53 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from datetime import datetime
 from typing import Optional, List
 
-class ResultadoCalibreResponse(BaseModel):
+
+#Clasificación por calibre
+class CalibrePorcentaje(BaseModel):
+    calibre_id: int
+    porcentaje: float = Field(..., gt=0, le=100)
+
+
+class ClasificacionCalibreResponse(BaseModel):
     id: int
     calibre_id: int
-    porcentaje_muestreo: float
-    cantidad_calculada: int
+    porcentaje: float
+    cantidad_melones: int
 
     model_config = ConfigDict(from_attributes=True)
 
-class ResultadoDetalle(BaseModel):
+
+#Resultado IA
+class AjusteResultadoRequest(BaseModel):
+    conteo_ajustado: int = Field(..., ge=0)
+    observaciones: Optional[str] = None
+    calibres: List[CalibrePorcentaje] = []
+
+
+class ResultadoIaResponse(BaseModel):
     id: int
     conteo_ia: int
-    conteo_final_ajustado: Optional[int] = None
+    conteo_ajustado: Optional[int] = None
     observaciones_ajuste: Optional[str] = None
     tiempo_procesamiento_seg: Optional[float] = None
-    calibres: List[ResultadoCalibreResponse] = []
+    clasificaciones: List[ClasificacionCalibreResponse] = []
 
     model_config = ConfigDict(from_attributes=True)
 
+
+#Procesamiento de video
 class ProcesamientoResponse(BaseModel):
     id: int
-    cultivo_id: int
-    variedad_id: int
-    estado: str       #'procesando', 'completado', 'error'
+    sesion_id: int
+    usuario_id: int
+    estado_id: int
+    surco_inicio: int
+    surco_fin: int
     video_original_url: str
     video_anotado_url: Optional[str] = None
     fecha_grabacion: datetime
-    creado_en: datetime
-    resultado: Optional[ResultadoDetalle] = None
+    created_at: datetime
+    resultado: Optional[ResultadoIaResponse] = None
 
     model_config = ConfigDict(from_attributes=True)

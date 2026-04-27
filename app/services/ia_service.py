@@ -1,32 +1,44 @@
 import cv2
 from ultralytics import YOLO
 
+
 class ProcesadorVideoYOLO:
     def __init__(self, modelo_path: str = "best.pt"):
         self.model = YOLO(modelo_path)
-        print("Clases entrenadas en este modelo:", self.model.names)
+        print("Clases del modelo:", self.model.names)
 
     def procesar(self, video_entrada_path: str, video_salida_path: str) -> dict:
-        print(f"Iniciando procesamiento de video: {video_entrada_path}")
+        print(f"Iniciando procesamiento: {video_entrada_path}")
 
         cap = cv2.VideoCapture(video_entrada_path)
         if not cap.isOpened():
             raise Exception("Error al abrir el archivo de video.")
 
-        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        fps = int(cap.get(cv2.CAP_PROP_FPS))
+        width       = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height      = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        fps         = int(cap.get(cv2.CAP_PROP_FPS))
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        cap.release()
 
-        cuatrocc = cv2.VideoWriter_fourcc(*'avc1')
-        out = cv2.VideoWriter(video_salida_path, cuatrocc, fps, (width, height))
+        # ── Parámetros de preprocesamiento ──────────────────────────
+        TARGET_FPS   = 6          # frames efectivos a procesar por segundo
+        FRAME_SKIP   = max(1, fps // TARGET_FPS)  # procesar 1 de cada N frames
+        MAX_WIDTH    = 1920       # máximo ancho de procesamiento (1080p)
+        scale        = min(1.0, MAX_WIDTH / width)
+        proc_w       = int(width  * scale)
+        proc_h       = int(height * scale)
 
-        ids_melones_unicos = set()
-        frames_procesados = 0
+        # ── VideoWriter a 720p para el video anotado ────────────────
+        out_w, out_h = 1280, 720
+        fourcc = cv2.VideoWriter_fourcc(*"avc1")
+        out    = cv2.VideoWriter(video_salida_path, fourcc, TARGET_FPS, (out_w, out_h))
+
+        ids_unicos    = set()
+        frames_proc   = 0
 
         porcentaje_margen = 0.10
-        margen_x = int(width * porcentaje_margen)
-        margen_y = int(height * porcentaje_margen)
+        margen_x = int(proc_w * porcentaje_margen)
+        margen_y = int(proc_h * porcentaje_margen)
 
         resultados_track = self.model.track(
             source=video_entrada_path,
@@ -35,63 +47,51 @@ class ProcesadorVideoYOLO:
             verbose=False,
             conf=0.5,
             iou=0.5,
-            tracker="bytetrack.yaml"
+            tracker="bytetrack.yaml",
+            vid_stride=FRAME_SKIP,   # submuestreo de frames
+            imgsz=proc_w             # redimensionamiento interno del modelo
         )
 
         for resultado in resultados_track:
-            frames_procesados += 1
+            frames_proc += 1
 
             frame_anotado = resultado.plot()
 
-            cv2.rectangle(
-                img=frame_anotado,
-                pt1=(margen_x, margen_y),
-                pt2=(width - margen_x, height - margen_y),
-                color=(255, 0, 0),
-                thickness=2
-            )
+            # Dibujar región de interés
+            cv2.rectangle(frame_anotado, (margen_x, margen_y),
+                          (proc_w - margen_x, proc_h - margen_y),
+                          (255, 0, 0), 2)
 
             if resultado.boxes.id is not None:
-                cajas = resultado.boxes.xyxy.cpu().numpy()
+                cajas     = resultado.boxes.xyxy.cpu().numpy()
                 track_ids = resultado.boxes.id.int().cpu().tolist()
 
                 for caja, track_id in zip(cajas, track_ids):
                     x1, y1, x2, y2 = caja
+                    cx = (x1 + x2) / 2
+                    cy = (y1 + y2) / 2
+                    if (margen_x < cx < proc_w - margen_x) and (margen_y < cy < proc_h - margen_y):
+                        ids_unicos.add(track_id)
 
-                    centro_x = (x1 + x2) / 2
-                    centro_y = (y1 + y2) / 2
+            conteo_actual = len(ids_unicos)
+            cv2.putText(frame_anotado, f"Melones: {conteo_actual}",
+                        (30, 60), cv2.FONT_HERSHEY_SIMPLEX,
+                        1.2, (0, 255, 0), 3, cv2.LINE_AA)
 
-                    if (margen_x < centro_x < (width - margen_x)) and (margen_y < centro_y < (height - margen_y)):
-                        ids_melones_unicos.add(track_id)
+            # Escalar a 720p antes de escribir
+            frame_720 = cv2.resize(frame_anotado, (out_w, out_h))
+            out.write(frame_720)
 
-            conteo_actual = len(ids_melones_unicos)
-            texto_conteo = f"Melones Contados: {conteo_actual}"
+            if frames_proc % 30 == 0:
+                print(f"Progreso: {frames_proc} frames procesados — {conteo_actual} melones únicos...")
 
-            cv2.putText(
-                img=frame_anotado,
-                text=texto_conteo,
-                org=(30, 60),
-                fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-                fontScale=1.2,
-                color=(0, 255, 0),
-                thickness=3,
-                lineType=cv2.LINE_AA
-            )
-
-            out.write(frame_anotado)
-
-            if frames_procesados % 30 == 0:
-                print(f"Progreso: {frames_procesados}/{total_frames} frames procesados...")
-
-        cap.release()
         out.release()
         cv2.destroyAllWindows()
 
-        cantidad_total = len(ids_melones_unicos)
-        print(f"Procesamiento finalizado. Melones únicos contados: {cantidad_total}")
+        total = len(ids_unicos)
+        print(f"Procesamiento finalizado. Total melones: {total}")
 
         return {
-            "maduros": cantidad_total,
-            "inmaduros": 0,
-            "tiempo_segundos": 0
+            "total": total,
+            "tiempo_segundos": 0  # TODO: medir tiempo real con time.time()
         }
