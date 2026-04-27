@@ -7,7 +7,10 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
 
+
+# ─────────────────────────────────────────────
 # CATÁLOGOS BASE
+# ─────────────────────────────────────────────
 
 class Rol(Base):
     __tablename__ = "rol"
@@ -20,11 +23,11 @@ class Rol(Base):
     created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("usuario.id"), nullable=True)
     updated_by: Mapped[Optional[int]] = mapped_column(ForeignKey("usuario.id"), nullable=True)
 
-    usuarios: Mapped[List["Usuario"]] = relationship(back_populates="rol", foreign_keys="Usuario.rol_id")
+    usuarios: Mapped[List["Usuario"]] = relationship(back_populates="rol", foreign_keys="[Usuario.rol_id]")
 
 
-class EstadoSesion(Base):
-    __tablename__ = "estado_sesion"
+class EstadoConteo(Base):
+    __tablename__ = "estado_conteo"
 
     id:         Mapped[int]           = mapped_column(primary_key=True, autoincrement=True)
     nombre:     Mapped[str]           = mapped_column(String(50), nullable=False, unique=True)
@@ -34,7 +37,7 @@ class EstadoSesion(Base):
     created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("usuario.id"), nullable=True)
     updated_by: Mapped[Optional[int]] = mapped_column(ForeignKey("usuario.id"), nullable=True)
 
-    sesiones: Mapped[List["SesionConteo"]] = relationship(back_populates="estado")
+    conteos: Mapped[List["Conteo"]] = relationship(back_populates="estado", foreign_keys="[Conteo.estado_id]")
 
 
 class EstadoProcesamiento(Base):
@@ -48,7 +51,7 @@ class EstadoProcesamiento(Base):
     created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("usuario.id"), nullable=True)
     updated_by: Mapped[Optional[int]] = mapped_column(ForeignKey("usuario.id"), nullable=True)
 
-    procesamientos: Mapped[List["ProcesamientoVideo"]] = relationship(back_populates="estado")
+    procesamientos: Mapped[List["ProcesamientoVideo"]] = relationship(back_populates="estado", foreign_keys="[ProcesamientoVideo.estado_id]")
 
 
 class Variedad(Base):
@@ -63,8 +66,8 @@ class Variedad(Base):
     created_by:  Mapped[Optional[int]] = mapped_column(ForeignKey("usuario.id"), nullable=True)
     updated_by:  Mapped[Optional[int]] = mapped_column(ForeignKey("usuario.id"), nullable=True)
 
-    calibres: Mapped[List["VariedadCalibre"]] = relationship(back_populates="variedad")
-    sesiones: Mapped[List["SesionConteo"]]    = relationship(back_populates="variedad")
+    calibres: Mapped[List["VariedadCalibre"]] = relationship(back_populates="variedad", foreign_keys="[VariedadCalibre.variedad_id]")
+    conteos:  Mapped[List["Conteo"]]          = relationship(back_populates="variedad",  foreign_keys="[Conteo.variedad_id]")
 
 
 class Calibre(Base):
@@ -73,14 +76,15 @@ class Calibre(Base):
     id:          Mapped[int]           = mapped_column(primary_key=True, autoincrement=True)
     nombre:      Mapped[str]           = mapped_column(String(20), nullable=False, unique=True)
     descripcion: Mapped[Optional[str]] = mapped_column(String(255))
+    orden:       Mapped[int]           = mapped_column(Integer, nullable=False, default=0)
     activo:      Mapped[bool]          = mapped_column(Boolean, nullable=False, default=True)
     created_at:  Mapped[datetime]      = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at:  Mapped[datetime]      = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
     created_by:  Mapped[Optional[int]] = mapped_column(ForeignKey("usuario.id"), nullable=True)
     updated_by:  Mapped[Optional[int]] = mapped_column(ForeignKey("usuario.id"), nullable=True)
 
-    variedades:      Mapped[List["VariedadCalibre"]]    = relationship(back_populates="calibre")
-    clasificaciones: Mapped[List["ClasificacionCalibre"]] = relationship(back_populates="calibre")
+    variedades:      Mapped[List["VariedadCalibre"]]    = relationship(back_populates="calibre",    foreign_keys="[VariedadCalibre.calibre_id]")
+    clasificaciones: Mapped[List["ClasificacionCalibre"]] = relationship(back_populates="calibre", foreign_keys="[ClasificacionCalibre.calibre_id]")
 
 
 class VariedadCalibre(Base):
@@ -96,10 +100,13 @@ class VariedadCalibre(Base):
     created_by:  Mapped[Optional[int]] = mapped_column(ForeignKey("usuario.id"), nullable=True)
     updated_by:  Mapped[Optional[int]] = mapped_column(ForeignKey("usuario.id"), nullable=True)
 
-    variedad: Mapped["Variedad"] = relationship(back_populates="calibres")
-    calibre:  Mapped["Calibre"]  = relationship(back_populates="variedades")
+    variedad: Mapped["Variedad"] = relationship(back_populates="calibres", foreign_keys="[VariedadCalibre.variedad_id]")
+    calibre:  Mapped["Calibre"]  = relationship(back_populates="variedades", foreign_keys="[VariedadCalibre.calibre_id]")
 
+
+# ─────────────────────────────────────────────
 # USUARIOS
+# ─────────────────────────────────────────────
 
 class Usuario(Base):
     __tablename__ = "usuario"
@@ -114,61 +121,69 @@ class Usuario(Base):
     created_by:    Mapped[Optional[int]] = mapped_column(ForeignKey("usuario.id"), nullable=True)
     updated_by:    Mapped[Optional[int]] = mapped_column(ForeignKey("usuario.id"), nullable=True)
 
-    rol:     Mapped["Rol"]         = relationship(back_populates="usuarios", foreign_keys=[rol_id])
-    cultivos: Mapped[List["Cultivo"]] = relationship(back_populates="usuario", cascade="all, delete-orphan")
+    rol:     Mapped["Rol"]          = relationship(back_populates="usuarios", foreign_keys="[Usuario.rol_id]")
+    cultivos: Mapped[List["Cultivo"]] = relationship(back_populates="usuario", foreign_keys="[Cultivo.usuario_id]", cascade="all, delete-orphan")
 
 
+# ─────────────────────────────────────────────
 # CULTIVO
+# ─────────────────────────────────────────────
 
 class Cultivo(Base):
     __tablename__ = "cultivo"
 
-    id:           Mapped[int]            = mapped_column(primary_key=True, autoincrement=True)
-    usuario_id:   Mapped[int]            = mapped_column(ForeignKey("usuario.id", ondelete="CASCADE"), nullable=False)
-    nombre:       Mapped[str]            = mapped_column(String(150), nullable=False)
-    ubicacion:    Mapped[Optional[str]]  = mapped_column(String(255))
-    hectareas:    Mapped[Optional[float]]= mapped_column(Numeric(8, 2))
-    total_surcos: Mapped[int]            = mapped_column(Integer, nullable=False)
-    activo:       Mapped[bool]           = mapped_column(Boolean, nullable=False, default=True)
-    created_at:   Mapped[datetime]       = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at:   Mapped[datetime]       = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
-    created_by:   Mapped[int]            = mapped_column(ForeignKey("usuario.id"), nullable=False)
-    updated_by:   Mapped[Optional[int]]  = mapped_column(ForeignKey("usuario.id"), nullable=True)
+    id:           Mapped[int]             = mapped_column(primary_key=True, autoincrement=True)
+    usuario_id:   Mapped[int]             = mapped_column(ForeignKey("usuario.id", ondelete="CASCADE"), nullable=False)
+    nombre:       Mapped[str]             = mapped_column(String(150), nullable=False)
+    ubicacion:    Mapped[Optional[str]]   = mapped_column(String(255))
+    hectareas:    Mapped[Optional[float]] = mapped_column(Numeric(8, 2))
+    total_surcos: Mapped[int]             = mapped_column(Integer, nullable=False)
+    activo:       Mapped[bool]            = mapped_column(Boolean, nullable=False, default=True)
+    created_at:   Mapped[datetime]        = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at:   Mapped[datetime]        = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    created_by:   Mapped[int]             = mapped_column(ForeignKey("usuario.id"), nullable=False)
+    updated_by:   Mapped[Optional[int]]   = mapped_column(ForeignKey("usuario.id"), nullable=True)
 
-    usuario:  Mapped["Usuario"]          = relationship(back_populates="cultivos", foreign_keys=[usuario_id])
-    sesiones: Mapped[List["SesionConteo"]] = relationship(back_populates="cultivo", cascade="all, delete-orphan")
+    usuario: Mapped["Usuario"]      = relationship(back_populates="cultivos", foreign_keys="[Cultivo.usuario_id]")
+    conteos: Mapped[List["Conteo"]] = relationship(back_populates="cultivo", foreign_keys="[Conteo.cultivo_id]", cascade="all, delete-orphan")
 
 
-# SESIÓN DE CONTEO
+# ─────────────────────────────────────────────
+# CONTEO
+# ─────────────────────────────────────────────
 
-class SesionConteo(Base):
-    __tablename__ = "sesion_conteo"
+class Conteo(Base):
+    __tablename__ = "conteo"
 
     id:                     Mapped[int]           = mapped_column(primary_key=True, autoincrement=True)
-    cultivo_id:             Mapped[int]            = mapped_column(ForeignKey("cultivo.id", ondelete="CASCADE"), nullable=False)
-    variedad_id:            Mapped[int]            = mapped_column(ForeignKey("variedad.id"), nullable=False)
-    estado_id:              Mapped[int]            = mapped_column(ForeignKey("estado_sesion.id"), nullable=False)
-    fecha_sesion:           Mapped[date]           = mapped_column(Date, nullable=False, server_default=func.current_date())
-    conteo_total_acumulado: Mapped[int]            = mapped_column(Integer, nullable=False, default=0)
-    observaciones:          Mapped[Optional[str]]  = mapped_column(Text)
-    activo:                 Mapped[bool]           = mapped_column(Boolean, nullable=False, default=True)
-    created_at:             Mapped[datetime]       = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at:             Mapped[datetime]       = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
-    created_by:             Mapped[int]            = mapped_column(ForeignKey("usuario.id"), nullable=False)
-    updated_by:             Mapped[Optional[int]]  = mapped_column(ForeignKey("usuario.id"), nullable=True)
+    cultivo_id:             Mapped[int]           = mapped_column(ForeignKey("cultivo.id", ondelete="CASCADE"), nullable=False)
+    variedad_id:            Mapped[int]           = mapped_column(ForeignKey("variedad.id"), nullable=False)
+    estado_id:              Mapped[int]           = mapped_column(ForeignKey("estado_conteo.id"), nullable=False)
+    fecha_conteo:           Mapped[date]          = mapped_column(Date, nullable=False, server_default=func.current_date())
+    conteo_total_acumulado: Mapped[int]           = mapped_column(Integer, nullable=False, default=0)
+    observaciones:          Mapped[Optional[str]] = mapped_column(Text)
+    activo:                 Mapped[bool]          = mapped_column(Boolean, nullable=False, default=True)
+    created_at:             Mapped[datetime]      = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at:             Mapped[datetime]      = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    created_by:             Mapped[int]           = mapped_column(ForeignKey("usuario.id"), nullable=False)
+    updated_by:             Mapped[Optional[int]] = mapped_column(ForeignKey("usuario.id"), nullable=True)
 
-    cultivo:       Mapped["Cultivo"]                  = relationship(back_populates="sesiones")
-    variedad:      Mapped["Variedad"]                 = relationship(back_populates="sesiones")
-    estado:        Mapped["EstadoSesion"]             = relationship(back_populates="sesiones")
-    procesamientos: Mapped[List["ProcesamientoVideo"]] = relationship(back_populates="sesion", cascade="all, delete-orphan")
+    cultivo:          Mapped["Cultivo"]                    = relationship(back_populates="conteos",        foreign_keys="[Conteo.cultivo_id]")
+    variedad:         Mapped["Variedad"]                   = relationship(back_populates="conteos",        foreign_keys="[Conteo.variedad_id]")
+    estado:           Mapped["EstadoConteo"]               = relationship(back_populates="conteos",        foreign_keys="[Conteo.estado_id]")
+    procesamientos:   Mapped[List["ProcesamientoVideo"]]   = relationship(back_populates="conteo",         foreign_keys="[ProcesamientoVideo.conteo_id]", cascade="all, delete-orphan")
+    clasificaciones:  Mapped[List["ClasificacionCalibre"]] = relationship(back_populates="conteo",         foreign_keys="[ClasificacionCalibre.conteo_id]", cascade="all, delete-orphan")
 
+
+# ─────────────────────────────────────────────
 # PROCESAMIENTO DE VIDEO
+# ─────────────────────────────────────────────
 
 class ProcesamientoVideo(Base):
     __tablename__ = "procesamiento_video"
 
     id:                 Mapped[int]           = mapped_column(primary_key=True, autoincrement=True)
-    sesion_id:          Mapped[int]           = mapped_column(ForeignKey("sesion_conteo.id", ondelete="CASCADE"), nullable=False)
+    conteo_id:          Mapped[int]           = mapped_column(ForeignKey("conteo.id", ondelete="CASCADE"), nullable=False)
     usuario_id:         Mapped[int]           = mapped_column(ForeignKey("usuario.id"), nullable=False)
     estado_id:          Mapped[int]           = mapped_column(ForeignKey("estado_procesamiento.id"), nullable=False)
     surco_inicio:       Mapped[int]           = mapped_column(Integer, nullable=False)
@@ -182,48 +197,54 @@ class ProcesamientoVideo(Base):
     created_by:         Mapped[int]           = mapped_column(ForeignKey("usuario.id"), nullable=False)
     updated_by:         Mapped[Optional[int]] = mapped_column(ForeignKey("usuario.id"), nullable=True)
 
-    sesion:    Mapped["SesionConteo"]       = relationship(back_populates="procesamientos")
-    estado:    Mapped["EstadoProcesamiento"] = relationship(back_populates="procesamientos")
-    resultado: Mapped[Optional["ResultadoIa"]] = relationship(back_populates="procesamiento", uselist=False, cascade="all, delete-orphan")
+    conteo:    Mapped["Conteo"]              = relationship(back_populates="procesamientos",  foreign_keys="[ProcesamientoVideo.conteo_id]")
+    estado:    Mapped["EstadoProcesamiento"] = relationship(back_populates="procesamientos",  foreign_keys="[ProcesamientoVideo.estado_id]")
+    resultado: Mapped[Optional["ResultadoIa"]] = relationship(back_populates="procesamiento", foreign_keys="[ResultadoIa.procesamiento_id]", uselist=False, cascade="all, delete-orphan")
 
 
+# ─────────────────────────────────────────────
 # RESULTADO DE IA
+# ─────────────────────────────────────────────
 
 class ResultadoIa(Base):
     __tablename__ = "resultado_ia"
 
-    id:                      Mapped[int]           = mapped_column(primary_key=True, autoincrement=True)
-    procesamiento_id:        Mapped[int]           = mapped_column(ForeignKey("procesamiento_video.id", ondelete="CASCADE"), unique=True, nullable=False)
-    conteo_ia:               Mapped[int]           = mapped_column(Integer, nullable=False)
-    conteo_ajustado:         Mapped[Optional[int]] = mapped_column(Integer)
-    observaciones_ajuste:    Mapped[Optional[str]] = mapped_column(Text)
-    tiempo_procesamiento_seg: Mapped[Optional[float]] = mapped_column(Numeric(8, 2))
-    activo:                  Mapped[bool]          = mapped_column(Boolean, nullable=False, default=True)
-    created_at:              Mapped[datetime]      = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at:              Mapped[datetime]      = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
-    created_by:              Mapped[int]           = mapped_column(ForeignKey("usuario.id"), nullable=False)
-    updated_by:              Mapped[Optional[int]] = mapped_column(ForeignKey("usuario.id"), nullable=True)
+    id:                       Mapped[int]            = mapped_column(primary_key=True, autoincrement=True)
+    procesamiento_id:         Mapped[int]            = mapped_column(ForeignKey("procesamiento_video.id", ondelete="CASCADE"), unique=True, nullable=False)
+    conteo_ia:                Mapped[int]            = mapped_column(Integer, nullable=False)
+    conteo_ajustado:          Mapped[Optional[int]]  = mapped_column(Integer)
+    observaciones_ajuste:     Mapped[Optional[str]]  = mapped_column(Text)
+    tiempo_procesamiento_seg: Mapped[Optional[float]]= mapped_column(Numeric(8, 2))
+    activo:                   Mapped[bool]           = mapped_column(Boolean, nullable=False, default=True)
+    created_at:               Mapped[datetime]       = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at:               Mapped[datetime]       = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    created_by:               Mapped[int]            = mapped_column(ForeignKey("usuario.id"), nullable=False)
+    updated_by:               Mapped[Optional[int]]  = mapped_column(ForeignKey("usuario.id"), nullable=True)
 
-    procesamiento:   Mapped["ProcesamientoVideo"]      = relationship(back_populates="resultado")
-    clasificaciones: Mapped[List["ClasificacionCalibre"]] = relationship(back_populates="resultado", cascade="all, delete-orphan")
+    procesamiento: Mapped["ProcesamientoVideo"] = relationship(back_populates="resultado", foreign_keys="[ResultadoIa.procesamiento_id]")
 
 
-# CLASIFICACIÓN POR CALIBRE (la hace el operador)
+# ─────────────────────────────────────────────
+# CLASIFICACIÓN POR CALIBRE
+# A nivel de conteo, basada en muestreo manual
+# ─────────────────────────────────────────────
 
 class ClasificacionCalibre(Base):
     __tablename__ = "clasificacion_calibre"
-    __table_args__ = (UniqueConstraint("resultado_id", "calibre_id"),)
+    __table_args__ = (UniqueConstraint("conteo_id", "calibre_id"),)
 
-    id:              Mapped[int]   = mapped_column(primary_key=True, autoincrement=True)
-    resultado_id:    Mapped[int]   = mapped_column(ForeignKey("resultado_ia.id", ondelete="CASCADE"), nullable=False)
-    calibre_id:      Mapped[int]   = mapped_column(ForeignKey("calibre.id"), nullable=False)
-    porcentaje:      Mapped[float] = mapped_column(Numeric(5, 2), nullable=False)
-    cantidad_melones: Mapped[int]  = mapped_column(Integer, nullable=False)
-    activo:          Mapped[bool]  = mapped_column(Boolean, nullable=False, default=True)
-    created_at:      Mapped[datetime]      = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at:      Mapped[datetime]      = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
-    created_by:      Mapped[int]           = mapped_column(ForeignKey("usuario.id"), nullable=False)
-    updated_by:      Mapped[Optional[int]] = mapped_column(ForeignKey("usuario.id"), nullable=True)
+    id:                   Mapped[int]   = mapped_column(primary_key=True, autoincrement=True)
+    conteo_id:            Mapped[int]   = mapped_column(ForeignKey("conteo.id", ondelete="CASCADE"), nullable=False)
+    calibre_id:           Mapped[int]   = mapped_column(ForeignKey("calibre.id"), nullable=False)
+    cantidad_muestreo:    Mapped[int]   = mapped_column(Integer, nullable=False)
+    total_muestreo:       Mapped[int]   = mapped_column(Integer, nullable=False)
+    porcentaje:           Mapped[float] = mapped_column(Numeric(5, 2), nullable=False)
+    cantidad_extrapolada: Mapped[int]   = mapped_column(Integer, nullable=False)
+    activo:               Mapped[bool]  = mapped_column(Boolean, nullable=False, default=True)
+    created_at:           Mapped[datetime]      = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at:           Mapped[datetime]      = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    created_by:           Mapped[int]           = mapped_column(ForeignKey("usuario.id"), nullable=False)
+    updated_by:           Mapped[Optional[int]] = mapped_column(ForeignKey("usuario.id"), nullable=True)
 
-    resultado: Mapped["ResultadoIa"] = relationship(back_populates="clasificaciones")
-    calibre:   Mapped["Calibre"]     = relationship(back_populates="clasificaciones")
+    conteo:  Mapped["Conteo"]  = relationship(back_populates="clasificaciones", foreign_keys="[ClasificacionCalibre.conteo_id]")
+    calibre: Mapped["Calibre"] = relationship(back_populates="clasificaciones", foreign_keys="[ClasificacionCalibre.calibre_id]")

@@ -18,10 +18,10 @@ class UsuarioUpdate(BaseModel):
 
 
 class UsuarioResponse(BaseModel):
-    id: int
-    nombre: str
-    rol_id: int
-    activo: bool
+    id:         int
+    nombre:     str
+    rol_id:     int
+    activo:     bool
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

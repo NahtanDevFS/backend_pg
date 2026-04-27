@@ -4,11 +4,11 @@ from typing import Optional
 
 
 class CultivoBase(BaseModel):
-    nombre: str = Field(..., min_length=1, max_length=150)
-    ubicacion: Optional[str] = Field(default=None, max_length=255)
-    hectareas: Optional[float] = Field(default=None, gt=0)
-    total_surcos: int = Field(..., gt=0)
-    activo: bool = True
+    nombre:       str             = Field(..., min_length=1, max_length=150)
+    ubicacion:    Optional[str]   = Field(default=None, max_length=255)
+    hectareas:    Optional[float] = Field(default=None, gt=0)
+    total_surcos: int             = Field(..., gt=0)
+    activo:       bool            = True
 
 
 class CultivoCreate(CultivoBase):
@@ -16,14 +16,14 @@ class CultivoCreate(CultivoBase):
 
 
 class CultivoUpdate(BaseModel):
-    nombre: Optional[str] = Field(default=None, min_length=1, max_length=150)
-    ubicacion: Optional[str] = Field(default=None, max_length=255)
-    hectareas: Optional[float] = Field(default=None, gt=0)
-    total_surcos: Optional[int] = Field(default=None, gt=0)
+    nombre:       Optional[str]   = Field(default=None, min_length=1, max_length=150)
+    ubicacion:    Optional[str]   = Field(default=None, max_length=255)
+    hectareas:    Optional[float] = Field(default=None, gt=0)
+    total_surcos: Optional[int]   = Field(default=None, gt=0)
 
 
 class CultivoResponse(CultivoBase):
-    id: int
+    id:         int
     usuario_id: int
     created_at: datetime
 

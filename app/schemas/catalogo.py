@@ -1,29 +1,34 @@
 from pydantic import BaseModel, ConfigDict
-from datetime import datetime
+
 
 class RolResponse(BaseModel):
-    id: int
+    id:     int
     nombre: str
     model_config = ConfigDict(from_attributes=True)
+
 
 class VariedadResponse(BaseModel):
-    id: int
-    nombre: str
+    id:          int
+    nombre:      str
     descripcion: str | None = None
     model_config = ConfigDict(from_attributes=True)
+
 
 class CalibreResponse(BaseModel):
-    id: int
-    nombre: str
+    id:          int
+    nombre:      str
     descripcion: str | None = None
+    orden:       int
     model_config = ConfigDict(from_attributes=True)
 
-class EstadoSesionResponse(BaseModel):
-    id: int
+
+class EstadoConteoResponse(BaseModel):
+    id:     int
     nombre: str
     model_config = ConfigDict(from_attributes=True)
+
 
 class EstadoProcesamientoResponse(BaseModel):
-    id: int
+    id:     int
     nombre: str
     model_config = ConfigDict(from_attributes=True)
