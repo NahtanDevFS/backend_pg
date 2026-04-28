@@ -4,8 +4,8 @@ from typing import Optional
 
 
 class AjusteResultadoRequest(BaseModel):
-    conteo_ajustado: int            = Field(..., ge=0)
-    observaciones:   Optional[str]  = None
+    conteo_ajustado: int           = Field(..., ge=0)
+    observaciones:   Optional[str] = None
 
 
 class ResultadoIaResponse(BaseModel):
@@ -25,8 +25,8 @@ class ProcesamientoResponse(BaseModel):
     estado_id:          int
     surco_inicio:       int
     surco_fin:          int
-    video_original_url: str
-    video_anotado_url:  Optional[str]           = None
+    video_original_url: Optional[str]              = None
+    video_anotado_url:  Optional[str]              = None
     fecha_grabacion:    datetime
     created_at:         datetime
     resultado:          Optional[ResultadoIaResponse] = None
