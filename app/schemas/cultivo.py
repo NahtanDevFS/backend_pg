@@ -1,6 +1,6 @@
 from pydantic import BaseModel, ConfigDict, Field
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 
 
 class CultivoBase(BaseModel):
@@ -12,6 +12,7 @@ class CultivoBase(BaseModel):
 
 
 class CultivoCreate(CultivoBase):
+    """Usado por el administrador para crear un cultivo."""
     pass
 
 
@@ -25,6 +26,23 @@ class CultivoUpdate(BaseModel):
 class CultivoResponse(CultivoBase):
     id:         int
     usuario_id: int
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# Asignación de operadores
+
+class AsignarOperadorRequest(BaseModel):
+    usuario_id: int
+
+
+class OperadorAsignadoResponse(BaseModel):
+    """Operador asignado a un cultivo, con datos básicos para mostrar en la UI."""
+    id:         int          # id del registro cultivo_operador
+    usuario_id: int
+    nombre:     str          # nombre del usuario — se resuelve en el router
+    activo:     bool
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

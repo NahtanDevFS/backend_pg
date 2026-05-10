@@ -17,6 +17,13 @@ class UsuarioUpdate(BaseModel):
     rol_id: Optional[int] = None
 
 
+class UsuarioEdit(BaseModel):
+    """Usado por el admin para editar nombre, rol y/o restablecer contraseña."""
+    nombre:   Optional[str] = None
+    rol_id:   Optional[int] = None
+    password: Optional[str] = None
+
+
 class UsuarioResponse(BaseModel):
     id:         int
     nombre:     str

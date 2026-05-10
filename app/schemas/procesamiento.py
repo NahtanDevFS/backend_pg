@@ -14,6 +14,13 @@ class ResultadoIaResponse(BaseModel):
     conteo_ajustado:          Optional[int]   = None
     observaciones_ajuste:     Optional[str]   = None
     tiempo_procesamiento_seg: Optional[float] = None
+    # Campos de confiabilidad — requeridos por la app móvil (requerimiento i)
+    promedio_confianza:        Optional[float] = None
+    porcentaje_baja_confianza: Optional[float] = None
+    porcentaje_ocluidos:       Optional[float] = None
+    nivel_confiabilidad:       Optional[str]   = None  # "alto" | "moderado" | "bajo"
+    total_frames_procesados:   Optional[int]   = None
+    total_detecciones_brutas:  Optional[int]   = None
 
     model_config = ConfigDict(from_attributes=True)
 
