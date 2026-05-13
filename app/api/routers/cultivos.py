@@ -122,7 +122,7 @@ def listar_operadores_asignados(
     db: Session = Depends(get_db),
     _: Usuario = Depends(requiere_admin)
 ):
-    """Lista los operadores actualmente asignados a un cultivo."""
+    #Lista los operadores actualmente asignados a un cultivo
     _get_cultivo_activo(cultivo_id, db)
     asignaciones = cultivo_service.listar_operadores_del_cultivo(db=db, cultivo_id=cultivo_id)
     return [

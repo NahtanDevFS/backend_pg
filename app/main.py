@@ -30,9 +30,7 @@ app.include_router(conteos.router)
 app.include_router(procesamientos.router)
 app.include_router(catalogos.router)
 
-# Archivos de video servidos estáticamente (solo para compatibilidad con la
-# web existente). Los videos anotados para la app móvil se sirven a través
-# del endpoint autenticado /procesamientos/{id}/video-anotado
+# Archivos de video servidos estáticamente (solo para compatibilidad con la web existente). Los videos anotados para la app móvil se sirven a través del endpoint autenticado /procesamientos/{id}/video-anotado
 app.mount("/videos", StaticFiles(directory="uploads"), name="videos")
 
 

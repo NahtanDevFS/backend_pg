@@ -21,7 +21,10 @@ class ConteoResponse(BaseModel):
     variedad_id: int
     estado_id: int
     fecha_conteo: date
+    total_surcos: int
     conteo_total_acumulado: int
+    nivel_confiabilidad_agregado: Optional[str] = None
+    promedio_confianza_sesion: Optional[float] = None
     observaciones: Optional[str] = None
     activo: bool
     created_at: datetime

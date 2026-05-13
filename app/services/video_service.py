@@ -1,5 +1,6 @@
 import os
 import shutil
+import asyncio
 from fastapi import UploadFile
 from sqlalchemy.orm import Session
 from app.core.config import settings
@@ -9,13 +10,45 @@ from app.services.ia_service import ProcesadorVideoYOLO
 
 os.makedirs(settings.STORAGE_PATH, exist_ok=True)
 
+# Tamaño máximo permitido para el video 2 GB
+MAX_VIDEO_SIZE_BYTES = 2 * 1024 * 1024 * 1024
 
-def guardar_video_local(file: UploadFile, procesamiento_id: int) -> str:
-    extension = file.filename.split(".")[-1]
+# Tamaño del chunk de lectura/escritura: 1 MB
+CHUNK_SIZE = 1024 * 1024
+
+
+async def guardar_video_local(file: UploadFile, procesamiento_id: int) -> str:
+    #Guarda el video en disco de forma asíncrona, chunk a chunk, sin bloquear el event loop de uvicorn, valida que el archivo no supere MAX_VIDEO_SIZE_BYTES.
+
+    extension = file.filename.split(".")[-1].lower()
     nombre = f"{procesamiento_id}_original.{extension}"
     ruta = os.path.join(settings.STORAGE_PATH, nombre)
-    with open(ruta, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+
+    total_bytes = 0
+    loop = asyncio.get_event_loop()
+
+    f_destino = await loop.run_in_executor(None, lambda: open(ruta, "wb"))
+
+    try:
+        while True:
+            chunk = await file.read(CHUNK_SIZE)
+            if not chunk:
+                break
+
+            total_bytes += len(chunk)
+            if total_bytes > MAX_VIDEO_SIZE_BYTES:
+                f_destino.close()
+                if os.path.exists(ruta):
+                    os.remove(ruta)
+                raise ValueError(
+                    f"El video supera el tamaño máximo permitido de "
+                    f"{MAX_VIDEO_SIZE_BYTES // (1024**3)} GB."
+                )
+
+            await loop.run_in_executor(None, f_destino.write, chunk)
+    finally:
+        await loop.run_in_executor(None, f_destino.close)
+
     return nombre
 
 
@@ -59,12 +92,12 @@ def tarea_procesar_video(procesamiento_id: int, nombre_archivo: str, usuario_id:
             procesamiento_id=procesamiento.id,
             conteo_ia=resultados["total"],
             tiempo_procesamiento_seg=resultados["tiempo_segundos"],
-            created_by=usuario_id
+            total_frames_procesados=resultados["frames_procesados"],
+            created_by=usuario_id,
         )
         db.add(resultado)
         db.flush()
 
-        # Actualizar total acumulado del conteo
         conteo = db.query(Conteo).filter(Conteo.id == procesamiento.conteo_id).first()
         todos = db.query(ResultadoIa).join(ProcesamientoVideo).filter(
             ProcesamientoVideo.conteo_id == conteo.id

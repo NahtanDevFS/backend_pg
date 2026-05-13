@@ -12,9 +12,9 @@ from app.core.database import Base
 class Rol(Base):
     __tablename__ = "rol"
 
-    id:         Mapped[int]           = mapped_column(primary_key=True, autoincrement=True)
-    nombre:     Mapped[str]           = mapped_column(String(50), nullable=False, unique=True)
-    activo:     Mapped[bool]          = mapped_column(Boolean, nullable=False, default=True)
+    id:   Mapped[int]   = mapped_column(primary_key=True, autoincrement=True)
+    nombre: Mapped[str]   = mapped_column(String(50), nullable=False, unique=True)
+    activo:   Mapped[bool]   = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime]      = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime]      = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
     created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("usuario.id"), nullable=True)
@@ -26,9 +26,9 @@ class Rol(Base):
 class EstadoConteo(Base):
     __tablename__ = "estado_conteo"
 
-    id:         Mapped[int]           = mapped_column(primary_key=True, autoincrement=True)
-    nombre:     Mapped[str]           = mapped_column(String(50), nullable=False, unique=True)
-    activo:     Mapped[bool]          = mapped_column(Boolean, nullable=False, default=True)
+    id:   Mapped[int]    = mapped_column(primary_key=True, autoincrement=True)
+    nombre:    Mapped[str]     = mapped_column(String(50), nullable=False, unique=True)
+    activo:    Mapped[bool]        = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime]      = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime]      = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
     created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("usuario.id"), nullable=True)
@@ -40,9 +40,9 @@ class EstadoConteo(Base):
 class EstadoProcesamiento(Base):
     __tablename__ = "estado_procesamiento"
 
-    id:         Mapped[int]           = mapped_column(primary_key=True, autoincrement=True)
-    nombre:     Mapped[str]           = mapped_column(String(50), nullable=False, unique=True)
-    activo:     Mapped[bool]          = mapped_column(Boolean, nullable=False, default=True)
+    id:       Mapped[int]        = mapped_column(primary_key=True, autoincrement=True)
+    nombre:  Mapped[str]           = mapped_column(String(50), nullable=False, unique=True)
+    activo:   Mapped[bool]       = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime]      = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime]      = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
     created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("usuario.id"), nullable=True)
@@ -70,13 +70,13 @@ class Variedad(Base):
 class Calibre(Base):
     __tablename__ = "calibre"
 
-    id:          Mapped[int]           = mapped_column(primary_key=True, autoincrement=True)
-    nombre:      Mapped[str]           = mapped_column(String(20), nullable=False, unique=True)
+    id:  Mapped[int]   = mapped_column(primary_key=True, autoincrement=True)
+    nombre:    Mapped[str]    = mapped_column(String(20), nullable=False, unique=True)
     descripcion: Mapped[Optional[str]] = mapped_column(String(255))
-    orden:       Mapped[int]           = mapped_column(Integer, nullable=False, default=0)
-    activo:      Mapped[bool]          = mapped_column(Boolean, nullable=False, default=True)
-    created_at:  Mapped[datetime]      = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at:  Mapped[datetime]      = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    orden:     Mapped[int]   = mapped_column(Integer, nullable=False, default=0)
+    activo:    Mapped[bool]    = mapped_column(Boolean, nullable=False, default=True)
+    created_at:  Mapped[datetime]  = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at:  Mapped[datetime]  = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
     created_by:  Mapped[Optional[int]] = mapped_column(ForeignKey("usuario.id"), nullable=True)
     updated_by:  Mapped[Optional[int]] = mapped_column(ForeignKey("usuario.id"), nullable=True)
 
@@ -88,10 +88,10 @@ class VariedadCalibre(Base):
     __tablename__ = "variedad_calibre"
     __table_args__ = (UniqueConstraint("variedad_id", "calibre_id"),)
 
-    id:          Mapped[int]           = mapped_column(primary_key=True, autoincrement=True)
-    variedad_id: Mapped[int]           = mapped_column(ForeignKey("variedad.id"), nullable=False)
+    id:       Mapped[int]        = mapped_column(primary_key=True, autoincrement=True)
+    variedad_id: Mapped[int]       = mapped_column(ForeignKey("variedad.id"), nullable=False)
     calibre_id:  Mapped[int]           = mapped_column(ForeignKey("calibre.id"), nullable=False)
-    activo:      Mapped[bool]          = mapped_column(Boolean, nullable=False, default=True)
+    activo:      Mapped[bool]         = mapped_column(Boolean, nullable=False, default=True)
     created_at:  Mapped[datetime]      = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at:  Mapped[datetime]      = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
     created_by:  Mapped[Optional[int]] = mapped_column(ForeignKey("usuario.id"), nullable=True)
@@ -104,12 +104,12 @@ class VariedadCalibre(Base):
 class Usuario(Base):
     __tablename__ = "usuario"
 
-    id:            Mapped[int]           = mapped_column(primary_key=True, autoincrement=True)
-    rol_id:        Mapped[int]           = mapped_column(ForeignKey("rol.id"), nullable=False)
-    nombre:        Mapped[str]           = mapped_column(String(100), nullable=False, unique=True)
-    password_hash: Mapped[str]           = mapped_column(String(255), nullable=False)
+    id:        Mapped[int]        = mapped_column(primary_key=True, autoincrement=True)
+    rol_id:     Mapped[int]           = mapped_column(ForeignKey("rol.id"), nullable=False)
+    nombre:        Mapped[str]       = mapped_column(String(100), nullable=False, unique=True)
+    password_hash: Mapped[str]        = mapped_column(String(255), nullable=False)
     activo:        Mapped[bool]          = mapped_column(Boolean, nullable=False, default=True)
-    created_at:    Mapped[datetime]      = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at:    Mapped[datetime]    = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at:    Mapped[datetime]      = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
     created_by:    Mapped[Optional[int]] = mapped_column(ForeignKey("usuario.id"), nullable=True)
     updated_by:    Mapped[Optional[int]] = mapped_column(ForeignKey("usuario.id"), nullable=True)
@@ -146,9 +146,9 @@ class CultivoOperador(Base):
     __tablename__ = "cultivo_operador"
     __table_args__ = (UniqueConstraint("cultivo_id", "usuario_id"),)
 
-    id:         Mapped[int]           = mapped_column(primary_key=True, autoincrement=True)
-    cultivo_id: Mapped[int]           = mapped_column(ForeignKey("cultivo.id",  ondelete="CASCADE"), nullable=False)
-    usuario_id: Mapped[int]           = mapped_column(ForeignKey("usuario.id",  ondelete="CASCADE"), nullable=False)
+    id:         Mapped[int]        = mapped_column(primary_key=True, autoincrement=True)
+    cultivo_id: Mapped[int]        = mapped_column(ForeignKey("cultivo.id",  ondelete="CASCADE"), nullable=False)
+    usuario_id: Mapped[int]        = mapped_column(ForeignKey("usuario.id",  ondelete="CASCADE"), nullable=False)
     activo:     Mapped[bool]          = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime]      = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime]      = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
@@ -162,7 +162,7 @@ class CultivoOperador(Base):
 class Conteo(Base):
     __tablename__ = "conteo"
 
-    id:                             Mapped[int]           = mapped_column(primary_key=True, autoincrement=True)
+    id:                   Mapped[int]           = mapped_column(primary_key=True, autoincrement=True)
     cultivo_id:                     Mapped[int]           = mapped_column(ForeignKey("cultivo.id", ondelete="CASCADE"), nullable=False)
     variedad_id:                    Mapped[int]           = mapped_column(ForeignKey("variedad.id"), nullable=False)
     estado_id:                      Mapped[int]           = mapped_column(ForeignKey("estado_conteo.id"), nullable=False)
@@ -237,18 +237,18 @@ class ClasificacionCalibre(Base):
     __tablename__ = "clasificacion_calibre"
     __table_args__ = (UniqueConstraint("conteo_id", "calibre_id"),)
 
-    id:                   Mapped[int]           = mapped_column(primary_key=True, autoincrement=True)
-    conteo_id:            Mapped[int]           = mapped_column(ForeignKey("conteo.id", ondelete="CASCADE"), nullable=False)
+    id:              Mapped[int]         = mapped_column(primary_key=True, autoincrement=True)
+    conteo_id:          Mapped[int]           = mapped_column(ForeignKey("conteo.id", ondelete="CASCADE"), nullable=False)
     calibre_id:           Mapped[int]           = mapped_column(ForeignKey("calibre.id"), nullable=False)
     cantidad_muestreo:    Mapped[int]           = mapped_column(Integer, nullable=False)
     total_muestreo:       Mapped[int]           = mapped_column(Integer, nullable=False)
     porcentaje:           Mapped[float]         = mapped_column(Numeric(5, 2), nullable=False)
     cantidad_extrapolada: Mapped[int]           = mapped_column(Integer, nullable=False)
-    activo:               Mapped[bool]          = mapped_column(Boolean, nullable=False, default=True)
-    created_at:           Mapped[datetime]      = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at:           Mapped[datetime]      = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
-    created_by:           Mapped[int]           = mapped_column(ForeignKey("usuario.id"), nullable=False)
-    updated_by:           Mapped[Optional[int]] = mapped_column(ForeignKey("usuario.id"), nullable=True)
+    activo:              Mapped[bool]          = mapped_column(Boolean, nullable=False, default=True)
+    created_at:       Mapped[datetime]      = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at:     Mapped[datetime]      = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    created_by:          Mapped[int]           = mapped_column(ForeignKey("usuario.id"), nullable=False)
+    updated_by:         Mapped[Optional[int]] = mapped_column(ForeignKey("usuario.id"), nullable=True)
 
     conteo:  Mapped["Conteo"]  = relationship(back_populates="clasificaciones", foreign_keys="[ClasificacionCalibre.conteo_id]")
     calibre: Mapped["Calibre"] = relationship(back_populates="clasificaciones", foreign_keys="[ClasificacionCalibre.calibre_id]")

@@ -11,7 +11,7 @@ from app.api.deps import obtener_usuario_actual, requiere_admin, requiere_operad
 router = APIRouter(prefix="/conteos", tags=["Conteos"])
 
 
-#Helpers
+# ── Helpers ───────────────────────────────────────────────────
 
 def _get_conteo_del_usuario(conteo_id: int, usuario: Usuario, db: Session) -> Conteo:
     """
@@ -72,7 +72,7 @@ def _build_muestreo_response(conteo: Conteo, db: Session) -> MuestreoResponse:
     )
 
 
-# Operador
+# ── Operador ──────────────────────────────────────────────────
 
 @router.post("/", response_model=ConteoResponse, status_code=status.HTTP_201_CREATED)
 def crear_conteo(
@@ -105,6 +105,7 @@ def crear_conteo(
         estado_id=estado_inicial.id,
         fecha_conteo=conteo_in.fecha_conteo,
         observaciones=conteo_in.observaciones,
+        total_surcos=cultivo.total_surcos,  # snapshot al momento de crear
         created_by=usuario.id
     )
     db.add(nuevo)
@@ -115,8 +116,13 @@ def crear_conteo(
 
 @router.get("/cultivo/{cultivo_id}", response_model=List[ConteoResponse])
 def listar_conteos_por_cultivo(
-    cultivo_id: int,
-    db: Session = Depends(get_db),
+    cultivo_id:  int,
+    fecha_desde: Optional[date] = None,
+    fecha_hasta: Optional[date] = None,
+    estado:      Optional[str]  = None,  # "en_progreso" | "completado"
+    skip:        int = 0,
+    limit:       int = 20,
+    db:      Session = Depends(get_db),
     usuario: Usuario = Depends(requiere_operador)
 ):
     cultivo = db.query(Cultivo).filter(
@@ -134,10 +140,20 @@ def listar_conteos_por_cultivo(
     if not acceso:
         raise HTTPException(status_code=403, detail="No tienes acceso a este cultivo.")
 
-    return db.query(Conteo).filter(
+    query = db.query(Conteo).filter(
         Conteo.cultivo_id == cultivo_id,
         Conteo.activo == True
-    ).order_by(Conteo.fecha_conteo.desc()).all()
+    )
+    if fecha_desde:
+        query = query.filter(Conteo.fecha_conteo >= fecha_desde)
+    if fecha_hasta:
+        query = query.filter(Conteo.fecha_conteo <= fecha_hasta)
+    if estado:
+        est = db.query(EstadoConteo).filter(EstadoConteo.nombre == estado).first()
+        if est:
+            query = query.filter(Conteo.estado_id == est.id)
+
+    return query.order_by(Conteo.fecha_conteo.desc()).offset(skip).limit(limit).all()
 
 
 @router.get("/{conteo_id}", response_model=ConteoResponse)
@@ -212,7 +228,7 @@ def comparar_con_anterior(
     )
 
 
-# Muestreo por calibre (operador)
+# ── Muestreo por calibre (operador) ──────────────────────────
 
 @router.post("/{conteo_id}/muestreo", response_model=MuestreoResponse)
 def guardar_muestreo(
@@ -269,7 +285,7 @@ def obtener_muestreo(
     return _build_muestreo_response(conteo, db)
 
 
-#Administrador
+# ── Administrador ─────────────────────────────────────────────
 
 @router.get(
     "/admin/historial",

@@ -1,5 +1,18 @@
+import time
 import cv2
 from ultralytics import YOLO
+
+# Analizar 1 de cada 5 frames del video original
+FRAME_SKIP = 5
+
+# Ancho máximo al que se redimensiona internamente el frame antes de pasarlo al modelo
+MAX_WIDTH = 2560
+
+# Margen relativo del borde del frame que se excluye del conteo (evita contar melones que entran/salen de cuadro a medias).
+MARGEN_RELATIVO = 0.10
+
+# Resolución del video anotado de salida (lo que ve el operador)
+OUT_W, OUT_H = 1280, 720
 
 
 class ProcesadorVideoYOLO:
@@ -9,37 +22,46 @@ class ProcesadorVideoYOLO:
 
     def procesar(self, video_entrada_path: str, video_salida_path: str) -> dict:
         print(f"Iniciando procesamiento: {video_entrada_path}")
+        t_inicio = time.time()
 
         cap = cv2.VideoCapture(video_entrada_path)
         if not cap.isOpened():
             raise Exception("Error al abrir el archivo de video.")
 
-        width       = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        height      = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        fps         = int(cap.get(cv2.CAP_PROP_FPS))
+        width        = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height       = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        fps          = cap.get(cv2.CAP_PROP_FPS) or 30
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         cap.release()
 
-        # ── Parámetros de preprocesamiento ──────────────────────────
-        TARGET_FPS   = 6          # frames efectivos a procesar por segundo
-        FRAME_SKIP   = max(1, fps // TARGET_FPS)  # procesar 1 de cada N frames
-        MAX_WIDTH    = 1920       # máximo ancho de procesamiento (1080p)
-        scale        = min(1.0, MAX_WIDTH / width)
-        proc_w       = int(width  * scale)
-        proc_h       = int(height * scale)
+        # FPS efectivos que tendrá el video anotado de salida
+        fps_salida = max(1, fps / FRAME_SKIP)
 
-        # ── VideoWriter a 720p para el video anotado ────────────────
-        out_w, out_h = 1280, 720
+        # Escala para no superar MAX_WIDTH (si el video ya es menor, scale=1.0)
+        scale  = min(1.0, MAX_WIDTH / width)
+        proc_w = int(width  * scale)
+        proc_h = int(height * scale)
+
+        # Márgenes en píxeles para la región de interés
+        margen_x = int(proc_w * MARGEN_RELATIVO)
+        margen_y = int(proc_h * MARGEN_RELATIVO)
+
+        print(
+            f"  Video original : {width}x{height} @ {fps:.1f}fps  ({total_frames} frames)\n"
+            f"  Procesamiento  : {proc_w}x{proc_h} — 1 de cada {FRAME_SKIP} frames "
+            f"(~{fps_salida:.1f}fps efectivos)\n"
+            f"  Frames a proc. : ~{total_frames // FRAME_SKIP}"
+        )
+
+        # VideoWriter para el video anotado
         fourcc = cv2.VideoWriter_fourcc(*"avc1")
-        out    = cv2.VideoWriter(video_salida_path, fourcc, TARGET_FPS, (out_w, out_h))
+        out    = cv2.VideoWriter(video_salida_path, fourcc, fps_salida, (OUT_W, OUT_H))
 
-        ids_unicos    = set()
-        frames_proc   = 0
+        ids_unicos  = set()
+        frames_proc = 0
 
-        porcentaje_margen = 0.10
-        margen_x = int(proc_w * porcentaje_margen)
-        margen_y = int(proc_h * porcentaje_margen)
-
+        #Tracking con YOLO
+        # vid_stride=FRAME_SKIP le indica a YOLO que salte 5-1 frames entre
         resultados_track = self.model.track(
             source=video_entrada_path,
             persist=True,
@@ -48,8 +70,8 @@ class ProcesadorVideoYOLO:
             conf=0.5,
             iou=0.5,
             tracker="bytetrack.yaml",
-            vid_stride=FRAME_SKIP,   # submuestreo de frames
-            imgsz=proc_w             # redimensionamiento interno del modelo
+            vid_stride=FRAME_SKIP,
+            imgsz=proc_w,
         )
 
         for resultado in resultados_track:
@@ -58,9 +80,12 @@ class ProcesadorVideoYOLO:
             frame_anotado = resultado.plot()
 
             # Dibujar región de interés
-            cv2.rectangle(frame_anotado, (margen_x, margen_y),
-                          (proc_w - margen_x, proc_h - margen_y),
-                          (255, 0, 0), 2)
+            cv2.rectangle(
+                frame_anotado,
+                (margen_x, margen_y),
+                (proc_w - margen_x, proc_h - margen_y),
+                (255, 0, 0), 2,
+            )
 
             if resultado.boxes.id is not None:
                 cajas     = resultado.boxes.xyxy.cpu().numpy()
@@ -70,28 +95,43 @@ class ProcesadorVideoYOLO:
                     x1, y1, x2, y2 = caja
                     cx = (x1 + x2) / 2
                     cy = (y1 + y2) / 2
-                    if (margen_x < cx < proc_w - margen_x) and (margen_y < cy < proc_h - margen_y):
+                    dentro_roi = (
+                        margen_x < cx < proc_w - margen_x
+                        and margen_y < cy < proc_h - margen_y
+                    )
+                    if dentro_roi:
                         ids_unicos.add(track_id)
 
             conteo_actual = len(ids_unicos)
-            cv2.putText(frame_anotado, f"Melones: {conteo_actual}",
-                        (30, 60), cv2.FONT_HERSHEY_SIMPLEX,
-                        1.2, (0, 255, 0), 3, cv2.LINE_AA)
+            cv2.putText(
+                frame_anotado,
+                f"Melones: {conteo_actual}",
+                (30, 60),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                1.2, (0, 255, 0), 3, cv2.LINE_AA,
+            )
 
-            # Escalar a 720p antes de escribir
-            frame_720 = cv2.resize(frame_anotado, (out_w, out_h))
-            out.write(frame_720)
+            frame_out = cv2.resize(frame_anotado, (OUT_W, OUT_H))
+            out.write(frame_out)
 
             if frames_proc % 30 == 0:
-                print(f"Progreso: {frames_proc} frames procesados — {conteo_actual} melones únicos...")
+                print(f"  Progreso: {frames_proc} frames procesados — {conteo_actual} melones únicos")
 
         out.release()
         cv2.destroyAllWindows()
 
-        total = len(ids_unicos)
-        print(f"Procesamiento finalizado. Total melones: {total}")
+        tiempo_seg = int(time.time() - t_inicio)
+        total      = len(ids_unicos)
+
+        print(
+            f"Procesamiento finalizado.\n"
+            f"  Total melones  : {total}\n"
+            f"  Frames proc.   : {frames_proc}\n"
+            f"  Tiempo total   : {tiempo_seg}s"
+        )
 
         return {
             "total": total,
-            "tiempo_segundos": 0  # TODO: medir tiempo real con time.time()
+            "tiempo_segundos": tiempo_seg,
+            "frames_procesados": frames_proc,
         }
