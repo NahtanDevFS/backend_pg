@@ -28,6 +28,7 @@ class ConteoResponse(BaseModel):
     observaciones: Optional[str] = None
     activo: bool
     created_at: datetime
+    created_by: int
 
     model_config = ConfigDict(from_attributes=True)
 

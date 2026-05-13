@@ -105,7 +105,7 @@ def crear_conteo(
         estado_id=estado_inicial.id,
         fecha_conteo=conteo_in.fecha_conteo,
         observaciones=conteo_in.observaciones,
-        total_surcos=cultivo.total_surcos,  # snapshot al momento de crear
+        total_surcos=cultivo.total_surcos,
         created_by=usuario.id
     )
     db.add(nuevo)
@@ -119,7 +119,7 @@ def listar_conteos_por_cultivo(
     cultivo_id:  int,
     fecha_desde: Optional[date] = None,
     fecha_hasta: Optional[date] = None,
-    estado:      Optional[str]  = None,  # "en_progreso" | "completado"
+    estado:      Optional[str]  = None,
     skip:        int = 0,
     limit:       int = 20,
     db:      Session = Depends(get_db),
@@ -156,136 +156,9 @@ def listar_conteos_por_cultivo(
     return query.order_by(Conteo.fecha_conteo.desc()).offset(skip).limit(limit).all()
 
 
-@router.get("/{conteo_id}", response_model=ConteoResponse)
-def obtener_conteo(
-    conteo_id: int,
-    db: Session = Depends(get_db),
-    usuario: Usuario = Depends(requiere_operador)
-):
-    return _get_conteo_del_usuario(conteo_id, usuario, db)
-
-
-@router.patch("/{conteo_id}/completar")
-def completar_conteo(
-    conteo_id: int,
-    db: Session = Depends(get_db),
-    usuario: Usuario = Depends(requiere_operador)
-):
-    conteo = _get_conteo_del_usuario(conteo_id, usuario, db)
-    estado = db.query(EstadoConteo).filter(EstadoConteo.nombre == "completado").first()
-    conteo.estado_id = estado.id
-    conteo.updated_by = usuario.id
-    db.commit()
-    return {"mensaje": "Conteo marcado como completado."}
-
-
-@router.get(
-    "/{conteo_id}/comparacion-anterior",
-    response_model=ComparacionAnteriorResponse
-)
-def comparar_con_anterior(
-    conteo_id: int,
-    db: Session = Depends(get_db),
-    usuario: Usuario = Depends(requiere_operador)
-):
-    """
-    Devuelve el conteo completado inmediatamente anterior del mismo cultivo
-    y calcula la variación porcentual respecto al conteo actual.
-    """
-    conteo_actual = _get_conteo_del_usuario(conteo_id, usuario, db)
-
-    if conteo_actual.conteo_total_acumulado == 0:
-        return ComparacionAnteriorResponse(hay_historial=False)
-
-    # Buscar el conteo completado anterior (por fecha, excluyendo el actual)
-    estado_completado = db.query(EstadoConteo).filter(EstadoConteo.nombre == "completado").first()
-    if not estado_completado:
-        return ComparacionAnteriorResponse(hay_historial=False)
-
-    anterior = db.query(Conteo).filter(
-        Conteo.cultivo_id == conteo_actual.cultivo_id,
-        Conteo.id != conteo_id,
-        Conteo.estado_id == estado_completado.id,
-        Conteo.activo == True,
-        Conteo.fecha_conteo < conteo_actual.fecha_conteo
-    ).order_by(Conteo.fecha_conteo.desc()).first()
-
-    if not anterior or anterior.conteo_total_acumulado == 0:
-        return ComparacionAnteriorResponse(hay_historial=False)
-
-    variacion = round(
-        (conteo_actual.conteo_total_acumulado - anterior.conteo_total_acumulado)
-        / anterior.conteo_total_acumulado * 100,
-        2
-    )
-
-    return ComparacionAnteriorResponse(
-        conteo_anterior_id=anterior.id,
-        conteo_anterior_total=anterior.conteo_total_acumulado,
-        conteo_anterior_fecha=anterior.fecha_conteo,
-        variacion_porcentual=variacion,
-        hay_historial=True
-    )
-
-
-# ── Muestreo por calibre (operador) ──────────────────────────
-
-@router.post("/{conteo_id}/muestreo", response_model=MuestreoResponse)
-def guardar_muestreo(
-    conteo_id: int,
-    datos: MuestreoRequest,
-    db: Session = Depends(get_db),
-    usuario: Usuario = Depends(requiere_operador)
-):
-    conteo = _get_conteo_del_usuario(conteo_id, usuario, db)
-
-    if conteo.conteo_total_acumulado == 0:
-        raise HTTPException(status_code=400, detail="El conteo aún no tiene videos procesados.")
-
-    suma = sum(i.cantidad_muestreo for i in datos.items)
-    if suma != datos.total_muestreo:
-        raise HTTPException(
-            status_code=400,
-            detail=f"La suma de cantidades por calibre ({suma}) debe ser igual al total del muestreo ({datos.total_muestreo})."
-        )
-
-    db.query(ClasificacionCalibre).filter(
-        ClasificacionCalibre.conteo_id == conteo_id
-    ).delete()
-
-    for item in datos.items:
-        calibre = db.query(Calibre).filter(Calibre.id == item.calibre_id).first()
-        if not calibre:
-            raise HTTPException(status_code=404, detail=f"Calibre {item.calibre_id} no encontrado.")
-
-        porcentaje = round(item.cantidad_muestreo / datos.total_muestreo * 100, 2)
-        cantidad_extrapolada = round(porcentaje * conteo.conteo_total_acumulado / 100)
-
-        db.add(ClasificacionCalibre(
-            conteo_id=conteo_id,
-            calibre_id=item.calibre_id,
-            cantidad_muestreo=item.cantidad_muestreo,
-            total_muestreo=datos.total_muestreo,
-            porcentaje=porcentaje,
-            cantidad_extrapolada=cantidad_extrapolada,
-            created_by=usuario.id
-        ))
-
-    db.commit()
-    return _build_muestreo_response(conteo, db)
-
-
-@router.get("/{conteo_id}/muestreo", response_model=MuestreoResponse)
-def obtener_muestreo(
-    conteo_id: int,
-    db: Session = Depends(get_db),
-    usuario: Usuario = Depends(requiere_operador)
-):
-    conteo = _get_conteo_del_usuario(conteo_id, usuario, db)
-    return _build_muestreo_response(conteo, db)
-
-
 # ── Administrador ─────────────────────────────────────────────
+# IMPORTANTE: estas rutas deben ir ANTES de /{conteo_id} para que FastAPI
+# no interprete "admin" como un parámetro entero conteo_id.
 
 @router.get(
     "/admin/historial",
@@ -344,4 +217,134 @@ def obtener_muestreo_admin(
     _: Usuario = Depends(requiere_admin)
 ):
     conteo = _get_conteo_cualquiera(conteo_id, db)
+    return _build_muestreo_response(conteo, db)
+
+
+# ── Operador (rutas dinámicas /{conteo_id}) ───────────────────
+# Deben ir DESPUÉS de todas las rutas con segmentos literales
+# como /admin/... para evitar que FastAPI las capture primero.
+
+@router.get("/{conteo_id}", response_model=ConteoResponse)
+def obtener_conteo(
+    conteo_id: int,
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(requiere_operador)
+):
+    return _get_conteo_del_usuario(conteo_id, usuario, db)
+
+
+@router.patch("/{conteo_id}/completar")
+def completar_conteo(
+    conteo_id: int,
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(requiere_operador)
+):
+    conteo = _get_conteo_del_usuario(conteo_id, usuario, db)
+    estado = db.query(EstadoConteo).filter(EstadoConteo.nombre == "completado").first()
+    conteo.estado_id = estado.id
+    conteo.updated_by = usuario.id
+    db.commit()
+    return {"mensaje": "Conteo marcado como completado."}
+
+
+@router.get(
+    "/{conteo_id}/comparacion-anterior",
+    response_model=ComparacionAnteriorResponse
+)
+def comparar_con_anterior(
+    conteo_id: int,
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(requiere_operador)
+):
+    """
+    Devuelve el conteo completado inmediatamente anterior del mismo cultivo
+    y calcula la variación porcentual respecto al conteo actual.
+    """
+    conteo_actual = _get_conteo_del_usuario(conteo_id, usuario, db)
+
+    if conteo_actual.conteo_total_acumulado == 0:
+        return ComparacionAnteriorResponse(hay_historial=False)
+
+    estado_completado = db.query(EstadoConteo).filter(EstadoConteo.nombre == "completado").first()
+    if not estado_completado:
+        return ComparacionAnteriorResponse(hay_historial=False)
+
+    anterior = db.query(Conteo).filter(
+        Conteo.cultivo_id == conteo_actual.cultivo_id,
+        Conteo.id != conteo_id,
+        Conteo.estado_id == estado_completado.id,
+        Conteo.activo == True,
+        Conteo.fecha_conteo < conteo_actual.fecha_conteo
+    ).order_by(Conteo.fecha_conteo.desc()).first()
+
+    if not anterior or anterior.conteo_total_acumulado == 0:
+        return ComparacionAnteriorResponse(hay_historial=False)
+
+    variacion = round(
+        (conteo_actual.conteo_total_acumulado - anterior.conteo_total_acumulado)
+        / anterior.conteo_total_acumulado * 100,
+        2
+    )
+
+    return ComparacionAnteriorResponse(
+        conteo_anterior_id=anterior.id,
+        conteo_anterior_total=anterior.conteo_total_acumulado,
+        conteo_anterior_fecha=anterior.fecha_conteo,
+        variacion_porcentual=variacion,
+        hay_historial=True
+    )
+
+
+@router.post("/{conteo_id}/muestreo", response_model=MuestreoResponse)
+def guardar_muestreo(
+    conteo_id: int,
+    datos: MuestreoRequest,
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(requiere_operador)
+):
+    conteo = _get_conteo_del_usuario(conteo_id, usuario, db)
+
+    if conteo.conteo_total_acumulado == 0:
+        raise HTTPException(status_code=400, detail="El conteo aún no tiene videos procesados.")
+
+    suma = sum(i.cantidad_muestreo for i in datos.items)
+    if suma != datos.total_muestreo:
+        raise HTTPException(
+            status_code=400,
+            detail=f"La suma de cantidades por calibre ({suma}) debe ser igual al total del muestreo ({datos.total_muestreo})."
+        )
+
+    db.query(ClasificacionCalibre).filter(
+        ClasificacionCalibre.conteo_id == conteo_id
+    ).delete()
+
+    for item in datos.items:
+        calibre = db.query(Calibre).filter(Calibre.id == item.calibre_id).first()
+        if not calibre:
+            raise HTTPException(status_code=404, detail=f"Calibre {item.calibre_id} no encontrado.")
+
+        porcentaje = round(item.cantidad_muestreo / datos.total_muestreo * 100, 2)
+        cantidad_extrapolada = round(porcentaje * conteo.conteo_total_acumulado / 100)
+
+        db.add(ClasificacionCalibre(
+            conteo_id=conteo_id,
+            calibre_id=item.calibre_id,
+            cantidad_muestreo=item.cantidad_muestreo,
+            total_muestreo=datos.total_muestreo,
+            porcentaje=porcentaje,
+            cantidad_extrapolada=cantidad_extrapolada,
+            created_by=usuario.id
+        ))
+
+    db.commit()
+    return _build_muestreo_response(conteo, db)
+
+
+@router.get("/{conteo_id}/muestreo", response_model=MuestreoResponse)
+def obtener_muestreo(
+    conteo_id: int,
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(requiere_operador)
+):
+    conteo = _get_conteo_del_usuario(conteo_id, usuario, db)
     return _build_muestreo_response(conteo, db)

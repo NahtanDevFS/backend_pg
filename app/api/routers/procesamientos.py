@@ -17,7 +17,7 @@ from app.services import video_service
 router = APIRouter(prefix="/procesamientos", tags=["Procesamientos"])
 
 
-#helpers
+# ── Helpers ───────────────────────────────────────────────────
 
 def _get_procesamiento_del_usuario(procesamiento_id: int, usuario: Usuario, db: Session) -> ProcesamientoVideo:
     proc = db.query(ProcesamientoVideo).filter(
@@ -47,7 +47,7 @@ def _get_procesamiento_cualquiera(procesamiento_id: int, db: Session) -> Procesa
     return proc
 
 
-#operador
+# ── Operador (rutas con segmentos literales) ──────────────────
 
 @router.post("/registrar", response_model=ProcesamientoResponse, status_code=201)
 def registrar_procesamiento(
@@ -94,42 +94,6 @@ def registrar_procesamiento(
     return nuevo
 
 
-#recibe el archivo y lanza la IA
-@router.post("/{procesamiento_id}/video", response_model=ProcesamientoResponse)
-async def subir_video(
-    procesamiento_id: int,
-    background_tasks: BackgroundTasks,
-    video: UploadFile = File(...),
-    db:      Session  = Depends(get_db),
-    usuario: Usuario  = Depends(requiere_operador)
-):
-    proc = _get_procesamiento_del_usuario(procesamiento_id, usuario, db)
-
-    estado_pendiente = db.query(EstadoProcesamiento).filter(
-        EstadoProcesamiento.nombre == "pendiente"
-    ).first()
-    if not estado_pendiente or proc.estado_id != estado_pendiente.id:
-        raise HTTPException(status_code=400, detail="Este procesamiento no está en estado pendiente.")
-
-    nombre_archivo = await video_service.guardar_video_local(video, proc.id)
-
-    estado_procesando = db.query(EstadoProcesamiento).filter(
-        EstadoProcesamiento.nombre == "procesando"
-    ).first()
-    proc.video_original_url = nombre_archivo
-    proc.estado_id = estado_procesando.id
-    db.commit()
-    db.refresh(proc)
-
-    background_tasks.add_task(
-        video_service.tarea_procesar_video,
-        proc.id,
-        nombre_archivo,
-        usuario.id
-    )
-    return proc
-
-
 @router.get("/conteo/{conteo_id}", response_model=List[ProcesamientoResponse])
 def listar_por_conteo(
     conteo_id: int,
@@ -156,6 +120,25 @@ def listar_por_conteo(
         ProcesamientoVideo.activo == True
     ).order_by(ProcesamientoVideo.created_at.desc()).all()
 
+
+# ── Administrador ─────────────────────────────────────────────
+# IMPORTANTE: debe ir ANTES de /{procesamiento_id} para que FastAPI
+# no interprete "admin" como un entero procesamiento_id.
+
+@router.get("/admin/conteo/{conteo_id}", response_model=List[ProcesamientoResponse])
+def listar_por_conteo_admin(
+    conteo_id: int,
+    db: Session = Depends(get_db),
+    _: Usuario = Depends(requiere_admin),
+):
+    return db.query(ProcesamientoVideo).filter(
+        ProcesamientoVideo.conteo_id == conteo_id,
+        ProcesamientoVideo.activo == True
+    ).order_by(ProcesamientoVideo.created_at.desc()).all()
+
+
+# ── Operador (rutas dinámicas /{procesamiento_id}) ────────────
+# Deben ir DESPUÉS de todas las rutas con segmentos literales.
 
 @router.get("/{procesamiento_id}", response_model=ProcesamientoResponse)
 def obtener_procesamiento(
@@ -203,6 +186,41 @@ def descargar_video_anotado(
         f"conteo_{proc.conteo_id}_surcos_{proc.surco_inicio}-{proc.surco_fin}_anotado.mp4"
     )
     return FileResponse(path=ruta, media_type="video/mp4", filename=nombre_descarga)
+
+
+@router.post("/{procesamiento_id}/video", response_model=ProcesamientoResponse)
+async def subir_video(
+    procesamiento_id: int,
+    background_tasks: BackgroundTasks,
+    video: UploadFile = File(...),
+    db:      Session  = Depends(get_db),
+    usuario: Usuario  = Depends(requiere_operador)
+):
+    proc = _get_procesamiento_del_usuario(procesamiento_id, usuario, db)
+
+    estado_pendiente = db.query(EstadoProcesamiento).filter(
+        EstadoProcesamiento.nombre == "pendiente"
+    ).first()
+    if not estado_pendiente or proc.estado_id != estado_pendiente.id:
+        raise HTTPException(status_code=400, detail="Este procesamiento no está en estado pendiente.")
+
+    nombre_archivo = await video_service.guardar_video_local(video, proc.id)
+
+    estado_procesando = db.query(EstadoProcesamiento).filter(
+        EstadoProcesamiento.nombre == "procesando"
+    ).first()
+    proc.video_original_url = nombre_archivo
+    proc.estado_id = estado_procesando.id
+    db.commit()
+    db.refresh(proc)
+
+    background_tasks.add_task(
+        video_service.tarea_procesar_video,
+        proc.id,
+        nombre_archivo,
+        usuario.id
+    )
+    return proc
 
 
 @router.post("/{procesamiento_id}/ajustar")
