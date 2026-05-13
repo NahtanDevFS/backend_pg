@@ -11,13 +11,10 @@ from app.api.deps import obtener_usuario_actual, requiere_admin, requiere_operad
 router = APIRouter(prefix="/conteos", tags=["Conteos"])
 
 
-# ── Helpers ───────────────────────────────────────────────────
+#Helpers
 
 def _get_conteo_del_usuario(conteo_id: int, usuario: Usuario, db: Session) -> Conteo:
-    """
-    Devuelve un conteo verificando que el operador tiene acceso
-    al cultivo correspondiente a través de cultivo_operador.
-    """
+    #Devuelve un conteo verificando que el operador tiene acceso al cultivo correspondiente a través de cultivo_operador
     conteo = db.query(Conteo).filter(
         Conteo.id == conteo_id,
         Conteo.activo == True
@@ -72,7 +69,7 @@ def _build_muestreo_response(conteo: Conteo, db: Session) -> MuestreoResponse:
     )
 
 
-# ── Operador ──────────────────────────────────────────────────
+#Operador
 
 @router.post("/", response_model=ConteoResponse, status_code=status.HTTP_201_CREATED)
 def crear_conteo(
@@ -156,9 +153,7 @@ def listar_conteos_por_cultivo(
     return query.order_by(Conteo.fecha_conteo.desc()).offset(skip).limit(limit).all()
 
 
-# ── Administrador ─────────────────────────────────────────────
-# IMPORTANTE: estas rutas deben ir ANTES de /{conteo_id} para que FastAPI
-# no interprete "admin" como un parámetro entero conteo_id.
+#estas rutas deben ir ANTES de /{conteo_id} para que FastAPI no interprete "admin" como un parámetro entero conteo_id.
 
 @router.get(
     "/admin/historial",
@@ -173,12 +168,8 @@ def historial_global(
     db: Session = Depends(get_db),
     _: Usuario  = Depends(requiere_admin)
 ):
-    """
-    Devuelve todos los conteos activos del sistema con filtros opcionales:
-    - ?cultivo_id=X    → solo conteos de ese cultivo
-    - ?usuario_id=X    → solo conteos de cultivos de ese operador
-    - ?fecha_desde=YYYY-MM-DD y ?fecha_hasta=YYYY-MM-DD → rango de fechas
-    """
+    #Devuelve todos los conteos activos del sistema con filtros opcionales, ?cultivo_id=X solo conteos de ese cultivo, ?usuario_id=X    → solo conteos de cultivos de ese operador, fecha_desde=YYYY-MM-DD y ?fecha_hasta=YYYY-MM-DD → rango de fechas
+
     query = db.query(Conteo).join(Cultivo).filter(Conteo.activo == True)
 
     if cultivo_id:
@@ -218,11 +209,6 @@ def obtener_muestreo_admin(
 ):
     conteo = _get_conteo_cualquiera(conteo_id, db)
     return _build_muestreo_response(conteo, db)
-
-
-# ── Operador (rutas dinámicas /{conteo_id}) ───────────────────
-# Deben ir DESPUÉS de todas las rutas con segmentos literales
-# como /admin/... para evitar que FastAPI las capture primero.
 
 @router.get("/{conteo_id}", response_model=ConteoResponse)
 def obtener_conteo(

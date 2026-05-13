@@ -28,9 +28,9 @@ class ProcesadorVideoYOLO:
         if not cap.isOpened():
             raise Exception("Error al abrir el archivo de video.")
 
-        width        = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        height       = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        fps          = cap.get(cv2.CAP_PROP_FPS) or 30
+        width    = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height  = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        fps   = cap.get(cv2.CAP_PROP_FPS) or 30
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         cap.release()
 
@@ -60,8 +60,7 @@ class ProcesadorVideoYOLO:
         ids_unicos  = set()
         frames_proc = 0
 
-        #Tracking con YOLO
-        # vid_stride=FRAME_SKIP le indica a YOLO que salte 5-1 frames entre
+        #Tracking con YOLO, vid_stride=FRAME_SKIP le indica a YOLO que salte 5-1 frames entre
         resultados_track = self.model.track(
             source=video_entrada_path,
             persist=True,

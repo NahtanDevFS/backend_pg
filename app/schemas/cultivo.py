@@ -12,7 +12,7 @@ class CultivoBase(BaseModel):
 
 
 class CultivoCreate(CultivoBase):
-    """Usado por el administrador para crear un cultivo."""
+    #Usado por el administrador para crear un cultivo
     pass
 
 
@@ -38,10 +38,10 @@ class AsignarOperadorRequest(BaseModel):
 
 
 class OperadorAsignadoResponse(BaseModel):
-    """Operador asignado a un cultivo, con datos básicos para mostrar en la UI."""
-    id:         int          # id del registro cultivo_operador
+    #Operador asignado a un cultivo, con datos básicos para mostrar en la UI
+    id:       int          # id del registro cultivo_operador
     usuario_id: int
-    nombre:     str          # nombre del usuario — se resuelve en el router
+    nombre:     str          # nombre del usuario se resuelve en el router
     activo:     bool
     created_at: datetime
 

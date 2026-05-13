@@ -34,7 +34,7 @@ class ConteoResponse(BaseModel):
 
 
 class ComparacionAnteriorResponse(BaseModel):
-    """Devuelve el conteo anterior completado del mismo cultivo y la variación."""
+    """Devuelve el conteo anterior completado del mismo cultivo y la variación"""
     conteo_anterior_id: Optional[int] = None
     conteo_anterior_total: Optional[int] = None
     conteo_anterior_fecha: Optional[date] = None

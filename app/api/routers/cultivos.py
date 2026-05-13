@@ -148,7 +148,7 @@ def asignar_operador(
     db: Session = Depends(get_db),
     admin: Usuario = Depends(requiere_admin)
 ):
-    """Asigna un operador a un cultivo."""
+    #Asigna un operador a un cultivo
     _get_cultivo_activo(cultivo_id, db)
 
     operador = db.query(Usuario).filter(
@@ -182,7 +182,7 @@ def quitar_operador(
     db: Session = Depends(get_db),
     admin: Usuario = Depends(requiere_admin)
 ):
-    """Quita el acceso de un operador a un cultivo."""
+    #Quita el acceso de un operador a un cultivo
     _get_cultivo_activo(cultivo_id, db)
     eliminado = cultivo_service.quitar_operador(
         db=db,

@@ -10,7 +10,7 @@ app = FastAPI(title=settings.PROJECT_NAME)
 # localhost:3000  app web (Next.js) en desarrollo
 # frontend Vercel app web en producción
 # * para app móvil (React Native / Expo no tiene origen fijo)
-# En producción reemplaza "*" por los dominios exactos
+# En producción debo reemplazar "*" por los dominios exactos
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[

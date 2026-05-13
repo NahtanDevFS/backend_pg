@@ -17,7 +17,7 @@ from app.services import video_service
 router = APIRouter(prefix="/procesamientos", tags=["Procesamientos"])
 
 
-# ── Helpers ───────────────────────────────────────────────────
+#Helpers
 
 def _get_procesamiento_del_usuario(procesamiento_id: int, usuario: Usuario, db: Session) -> ProcesamientoVideo:
     proc = db.query(ProcesamientoVideo).filter(
@@ -47,7 +47,7 @@ def _get_procesamiento_cualquiera(procesamiento_id: int, db: Session) -> Procesa
     return proc
 
 
-# ── Operador (rutas con segmentos literales) ──────────────────
+#Operador (rutas con segmentos literales)
 
 @router.post("/registrar", response_model=ProcesamientoResponse, status_code=201)
 def registrar_procesamiento(
@@ -121,9 +121,7 @@ def listar_por_conteo(
     ).order_by(ProcesamientoVideo.created_at.desc()).all()
 
 
-# ── Administrador ─────────────────────────────────────────────
-# IMPORTANTE: debe ir ANTES de /{procesamiento_id} para que FastAPI
-# no interprete "admin" como un entero procesamiento_id.
+#debe ir antes de /{procesamiento_id} para que FastAPI no interprete "admin" como un entero procesamiento_id.
 
 @router.get("/admin/conteo/{conteo_id}", response_model=List[ProcesamientoResponse])
 def listar_por_conteo_admin(
@@ -137,8 +135,7 @@ def listar_por_conteo_admin(
     ).order_by(ProcesamientoVideo.created_at.desc()).all()
 
 
-# ── Operador (rutas dinámicas /{procesamiento_id}) ────────────
-# Deben ir DESPUÉS de todas las rutas con segmentos literales.
+#Operador (rutas dinámicas /{procesamiento_id}) Deben ir despues de todas las rutas con segmentos literales
 
 @router.get("/{procesamiento_id}", response_model=ProcesamientoResponse)
 def obtener_procesamiento(
