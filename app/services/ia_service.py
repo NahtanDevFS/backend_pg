@@ -68,7 +68,9 @@ class ProcesadorVideoYOLO:
             verbose=False,
             conf=0.5,
             iou=0.5,
-            tracker="bytetrack.yaml",
+            # tracker="bytetrack.yaml", #Rápido, ligero, bueno para movimiento fluido
+            # tracker="botsort.yaml", #Mayor precisión, mejor con muchas oclusiones
+            tracker="ocsort.yaml",  #Robusto ante oclusiones largas
             vid_stride=FRAME_SKIP,
             imgsz=proc_w,
         )

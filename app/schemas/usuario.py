@@ -19,13 +19,13 @@ class UsuarioUpdate(BaseModel):
 
 class UsuarioEdit(BaseModel):
     #Usado por el admin para editar nombre, rol y/o restablecer contraseña
-    nombre:   Optional[str] = None
-    rol_id:   Optional[int] = None
+    nombre: Optional[str] = None
+    rol_id: Optional[int] = None
     password: Optional[str] = None
 
 
 class UsuarioResponse(BaseModel):
-    id:  int
+    id: int
     nombre: str
     rol_id: int
     activo: bool

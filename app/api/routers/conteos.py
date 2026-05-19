@@ -153,7 +153,7 @@ def listar_conteos_por_cultivo(
     return query.order_by(Conteo.fecha_conteo.desc()).offset(skip).limit(limit).all()
 
 
-#estas rutas deben ir ANTES de /{conteo_id} para que FastAPI no interprete "admin" como un parámetro entero conteo_id.
+#estas rutas deben ir ANTES de /{conteo_id} para que FastAPI no interprete "admin" como un parámetro entero conteo_id
 
 @router.get(
     "/admin/historial",
