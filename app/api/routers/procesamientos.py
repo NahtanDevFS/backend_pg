@@ -51,11 +51,11 @@ def _get_procesamiento_cualquiera(procesamiento_id: int, db: Session) -> Procesa
 
 @router.post("/registrar", response_model=ProcesamientoResponse, status_code=201)
 def registrar_procesamiento(
-    conteo_id:       int      = Form(...),
-    surco_inicio:    int      = Form(...),
-    surco_fin:       int      = Form(...),
+    conteo_id: int = Form(...),
+    surco_inicio: int = Form(...),
+    surco_fin: int = Form(...),
     fecha_grabacion: datetime = Form(...),
-    db:      Session  = Depends(get_db),
+    db: Session = Depends(get_db),
     usuario: Usuario  = Depends(requiere_operador)
 ):
     conteo = db.query(Conteo).filter(
