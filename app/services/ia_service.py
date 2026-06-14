@@ -171,9 +171,9 @@ class ProcesadorVideoYOLO:
 
         print(
             f"Procesamiento finalizado.\n"
-            f"  Total melones  : {total}\n"
-            f"  Frames proc.   : {frames_proc}\n"
-            f"  Tiempo total   : {tiempo_seg}s"
+            f"  Total melones: {total}\n"
+            f"  Frames proc.: {frames_proc}\n"
+            f"  Tiempo total: {tiempo_seg}s"
         )
 
         return {

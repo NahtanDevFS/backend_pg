@@ -13,11 +13,7 @@ app = FastAPI(title=settings.PROJECT_NAME)
 # En producción debo reemplazar "*" por los dominios exactos
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "https://frontend-pg.vercel.app",
-    ],
-    allow_origin_regex=r"https://.*\.vercel\.app",  # cubre previews de Vercel
+    allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -31,8 +27,7 @@ app.include_router(procesamientos.router)
 app.include_router(catalogos.router)
 
 # Archivos de video servidos estáticamente (solo para compatibilidad con la web existente). Los videos anotados para la app móvil se sirven a través del endpoint autenticado /procesamientos/{id}/video-anotado
-app.mount("/videos", StaticFiles(directory="uploads"), name="videos")
-
+#app.mount("/videos", StaticFiles(directory="uploads"), name="videos")
 
 @app.get("/health")
 def health_check():

@@ -1,7 +1,7 @@
 import os
 import shutil
 import asyncio
-from fastapi import UploadFile
+from fastapi import UploadFile, HTTPException
 from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.models.models import ProcesamientoVideo, ResultadoIa, EstadoProcesamiento, Conteo
@@ -15,6 +15,9 @@ MAX_VIDEO_SIZE_BYTES = 2 * 1024 * 1024 * 1024
 
 # Tamaño del chunk de lectura/escritura: 1 MB
 CHUNK_SIZE = 1024 * 1024
+
+EXTENSIONES_PERMITIDAS = {"mp4", "mov", "avi", "mkv"}
+
 
 
 async def guardar_video_local(file: UploadFile, procesamiento_id: int) -> str:
