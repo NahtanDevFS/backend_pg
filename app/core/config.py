@@ -17,6 +17,14 @@ class Settings:
 
     STORAGE_PATH: str = os.getenv("STORAGE_PATH", "./uploads")
 
+    # Secreto compartido con Modal para autenticar el callback de resultados
+    MODAL_CALLBACK_SECRET: str = os.environ.get("MODAL_CALLBACK_SECRET")
+
+    # URL pública base del backend, para construir las URLs firmadas que Modal usará para descargar el video original
+    PUBLIC_BASE_URL: str = os.environ.get("PUBLIC_BASE_URL", "http://localhost:8000")
+
+    MODAL_ENDPOINT_URL: str = os.environ.get("MODAL_ENDPOINT_URL", "")
+
     # Orígenes CORS separados por coma, en producción solo el dominio real
     CORS_ORIGINS: list[str] = [
         origen.strip()
@@ -30,6 +38,8 @@ class Settings:
             faltantes.append("DATABASE_URL")
         if not self.SECRET_KEY:
             faltantes.append("SECRET_KEY")
+        if not self.MODAL_CALLBACK_SECRET:
+            faltantes.append("MODAL_CALLBACK_SECRET")
         if faltantes:
             raise RuntimeError(
                 f"Faltan variables de entorno obligatorias: {', '.join(faltantes)}. "

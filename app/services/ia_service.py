@@ -18,8 +18,7 @@ MARGEN_RELATIVO = 0.10
 # Resolución del video anotado de salida (lo que ve el operador)
 OUT_W, OUT_H = 1280, 720
 
-# ── Tracker activo ──────────────────────────────────────────────
-# Cambia esta línea para alternar entre trackers:
+#Trackers
 # TRACKER = "bytetrack"   # Rápido, ligero, bueno para movimiento fluido
 # TRACKER = "botsort"     # Mayor precisión, mejor con muchas oclusiones
 TRACKER = "ocsort"        # Robusto ante oclusiones largas
@@ -113,7 +112,16 @@ class ProcesadorVideoYOLO:
             # Actualizar tracker → Nx8 [x1,y1,x2,y2,id,conf,cls,idx]
             tracks = tracker.update(dets, frame_proc)
 
-            frame_anotado = frame_proc.copy()
+            # Dibujar máscaras de segmentación
+            if resultados[0].masks is not None:
+                mascaras = resultados[0].masks.data.cpu().numpy()
+                overlay = frame_anotado.copy()
+                for mascara in mascaras:
+                    # La máscara viene a resolución del modelo, ajustarla al frame
+                    m = cv2.resize(mascara, (proc_w, proc_h)) > 0.5
+                    overlay[m] = (0, 200, 0)
+                # Mezclar con transparencia para que se vea el melón debajo
+                frame_anotado = cv2.addWeighted(overlay, 0.4, frame_anotado, 0.6, 0)
 
             cv2.rectangle(
                 frame_anotado,

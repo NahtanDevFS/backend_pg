@@ -1,5 +1,5 @@
 from typing import List
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, BackgroundTasks, Header
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from datetime import datetime
@@ -13,6 +13,9 @@ from app.models.models import (
 from app.schemas.procesamiento import ProcesamientoResponse, AjusteResultadoRequest
 from app.api.deps import obtener_usuario_actual, requiere_admin, requiere_operador
 from app.services import video_service
+from app.core.firma import validar_token_descarga
+import secrets
+from app.core.config import settings
 
 router = APIRouter(prefix="/procesamientos", tags=["Procesamientos"])
 
@@ -48,6 +51,128 @@ def _get_procesamiento_cualquiera(procesamiento_id: int, db: Session) -> Procesa
 
 
 #Operador (rutas con segmentos literales)
+
+@router.post("/{procesamiento_id}/resultado-ia")
+async def recibir_resultado_ia(
+    procesamiento_id: int,
+    x_modal_secret: str = Header(...),
+    conteo_ia: int = Form(...),
+    tiempo_procesamiento_seg: float = Form(None),
+    total_frames_procesados: int = Form(None),
+    promedio_confianza: float = Form(None),
+    porcentaje_baja_confianza: float = Form(None),
+    porcentaje_ocluidos: float = Form(None),
+    nivel_confiabilidad: str = Form(None),
+    total_detecciones_brutas: int = Form(None),
+    video_anotado: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    #Callback que Modal invoca al terminar de procesar el video, autenticado por secreto compartido (no por token de usuario), guarda el video anotado, crea el resultado_ia y recalcula el acumulado."""
+
+    # Validación del secreto en tiempo constante
+    if not secrets.compare_digest(x_modal_secret, settings.MODAL_CALLBACK_SECRET):
+        raise HTTPException(status_code=403, detail="Secreto inválido.")
+
+    proc = db.query(ProcesamientoVideo).filter(
+        ProcesamientoVideo.id == procesamiento_id,
+        ProcesamientoVideo.activo == True,
+    ).first()
+    if not proc:
+        raise HTTPException(status_code=404, detail="Procesamiento no encontrado.")
+
+    # Si ya tiene resultado, ignoramos (callback duplicado / reintento)
+    if proc.resultado:
+        return {"detail": "Resultado ya registrado, callback ignorado."}
+
+    # Guardar el video anotado en disco (es liviano, 720p)
+    nombre_salida = f"{procesamiento_id}_anotado.mp4"
+    ruta_salida = video_service.obtener_ruta_fisica(nombre_salida)
+    try:
+        with open(ruta_salida, "wb") as f:
+            while True:
+                chunk = await video_anotado.read(1024 * 1024)
+                if not chunk:
+                    break
+                f.write(chunk)
+    except Exception:
+        # Si falla guardar el archivo, marcamos error y abortamos
+        estado_error = db.query(EstadoProcesamiento).filter(
+            EstadoProcesamiento.nombre == "error"
+        ).first()
+        if estado_error:
+            proc.estado_id = estado_error.id
+            db.commit()
+        raise HTTPException(status_code=500, detail="No se pudo guardar el video anotado.")
+
+    # Escribir el resultado de IA
+    resultado = ResultadoIa(
+        procesamiento_id=proc.id,
+        conteo_ia=conteo_ia,
+        tiempo_procesamiento_seg=tiempo_procesamiento_seg,
+        total_frames_procesados=total_frames_procesados,
+        promedio_confianza=promedio_confianza,
+        porcentaje_baja_confianza=porcentaje_baja_confianza,
+        porcentaje_ocluidos=porcentaje_ocluidos,
+        nivel_confiabilidad=nivel_confiabilidad,
+        total_detecciones_brutas=total_detecciones_brutas,
+        created_by=proc.created_by,
+    )
+    db.add(resultado)
+
+    proc.video_anotado_url = nombre_salida
+    estado_completado = db.query(EstadoProcesamiento).filter(
+        EstadoProcesamiento.nombre == "completado"
+    ).first()
+    proc.estado_id = estado_completado.id
+
+    db.flush()
+
+    # Recalcular el acumulado del conteo
+    conteo = db.query(Conteo).filter(Conteo.id == proc.conteo_id).first()
+    todos = db.query(ResultadoIa).join(ProcesamientoVideo).filter(
+        ProcesamientoVideo.conteo_id == conteo.id,
+        ProcesamientoVideo.activo == True,
+    ).all()
+    conteo.conteo_total_acumulado = sum(
+        (r.conteo_ajustado if r.conteo_ajustado is not None else r.conteo_ia)
+        for r in todos
+    )
+    db.commit()
+
+    return {"detail": "Resultado registrado correctamente."}
+
+
+
+@router.get("/{procesamiento_id}/video-original")
+def descargar_video_original(
+    procesamiento_id: int,
+    token: str,
+    db: Session = Depends(get_db),
+):
+    #Descarga del video original mediante token firmado de un solo uso,lo consume Modal para procesar el video con GPU. No requiere auth de usuario: el token HMAC firmado es la credencial. TTL corto (15 min)
+
+    if not validar_token_descarga(procesamiento_id, token):
+        raise HTTPException(status_code=403, detail="Token inválido o expirado.")
+
+    proc = db.query(ProcesamientoVideo).filter(
+        ProcesamientoVideo.id == procesamiento_id,
+        ProcesamientoVideo.activo == True,
+    ).first()
+    if not proc:
+        raise HTTPException(status_code=404, detail="Procesamiento no encontrado.")
+
+    # El original se guardó como {id}_original.{ext}. Buscamos el archivo real.
+    ruta = None
+    for ext in ("mp4", "mov", "avi", "mkv"):
+        candidata = video_service.obtener_ruta_fisica(f"{procesamiento_id}_original.{ext}")
+        if os.path.exists(candidata):
+            ruta = candidata
+            break
+
+    if not ruta:
+        raise HTTPException(status_code=404, detail="Archivo de video no encontrado.")
+
+    return FileResponse(ruta, media_type="application/octet-stream")
 
 @router.post("/registrar", response_model=ProcesamientoResponse, status_code=201)
 def registrar_procesamiento(

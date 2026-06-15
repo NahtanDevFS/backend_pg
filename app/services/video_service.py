@@ -1,12 +1,12 @@
 import os
-import shutil
 import asyncio
+import httpx
 from fastapi import UploadFile, HTTPException
 from sqlalchemy.orm import Session
 from app.core.config import settings
-from app.models.models import ProcesamientoVideo, ResultadoIa, EstadoProcesamiento, Conteo
+from app.models.models import ProcesamientoVideo, EstadoProcesamiento
 from app.core.database import SessionLocal
-from app.services.ia_service import ProcesadorVideoYOLO
+from app.core.firma import generar_token_descarga
 
 os.makedirs(settings.STORAGE_PATH, exist_ok=True)
 
@@ -16,18 +16,48 @@ MAX_VIDEO_SIZE_BYTES = 2 * 1024 * 1024 * 1024
 # Tamaño del chunk de lectura/escritura: 1 MB
 CHUNK_SIZE = 1024 * 1024
 
+# Extensiones de video permitidas
 EXTENSIONES_PERMITIDAS = {"mp4", "mov", "avi", "mkv"}
 
 
+def _validar_firma_video(primer_chunk: bytes, extension: str) -> bool:
+    """Verifica los magic bytes del archivo para confirmar que realmente
+    es un video y no otro tipo de archivo renombrado."""
+    if len(primer_chunk) < 12:
+        return False
+    if extension in ("mp4", "mov"):
+        # Contenedor ISO BMFF: bytes 4-8 == 'ftyp'
+        return primer_chunk[4:8] == b"ftyp"
+    if extension == "avi":
+        return primer_chunk[:4] == b"RIFF" and primer_chunk[8:12] == b"AVI "
+    if extension == "mkv":
+        return primer_chunk[:4] == b"\x1aE\xdf\xa3"
+    return False
+
 
 async def guardar_video_local(file: UploadFile, procesamiento_id: int) -> str:
-    #Guarda el video en disco de forma asíncrona, chunk a chunk, sin bloquear el event loop de uvicorn, valida que el archivo no supere MAX_VIDEO_SIZE_BYTES.
+    """Guarda el video en disco de forma asíncrona, chunk a chunk.
+    Valida extensión (whitelist), firma del archivo (magic bytes) y
+    tamaño máximo. El nombre final se construye SOLO con datos del
+    servidor para impedir path traversal."""
 
-    extension = file.filename.split(".")[-1].lower()
+    nombre_original = file.filename or ""
+    extension = (
+        nombre_original.rsplit(".", 1)[-1].lower() if "." in nombre_original else ""
+    )
+
+    if extension not in EXTENSIONES_PERMITIDAS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Formato no permitido. Extensiones válidas: {', '.join(sorted(EXTENSIONES_PERMITIDAS))}.",
+        )
+
+    # Nombre construido únicamente con valores controlados por el servidor
     nombre = f"{procesamiento_id}_original.{extension}"
     ruta = os.path.join(settings.STORAGE_PATH, nombre)
 
     total_bytes = 0
+    primer_chunk_validado = False
     loop = asyncio.get_event_loop()
 
     f_destino = await loop.run_in_executor(None, lambda: open(ruta, "wb"))
@@ -38,19 +68,31 @@ async def guardar_video_local(file: UploadFile, procesamiento_id: int) -> str:
             if not chunk:
                 break
 
+            if not primer_chunk_validado:
+                if not _validar_firma_video(chunk, extension):
+                    raise HTTPException(
+                        status_code=400,
+                        detail="El archivo no parece ser un video válido.",
+                    )
+                primer_chunk_validado = True
+
             total_bytes += len(chunk)
             if total_bytes > MAX_VIDEO_SIZE_BYTES:
-                f_destino.close()
-                if os.path.exists(ruta):
-                    os.remove(ruta)
-                raise ValueError(
-                    f"El video supera el tamaño máximo permitido de "
-                    f"{MAX_VIDEO_SIZE_BYTES // (1024**3)} GB."
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"El video supera el tamaño máximo permitido de "
+                    f"{MAX_VIDEO_SIZE_BYTES // (1024**3)} GB.",
                 )
 
             await loop.run_in_executor(None, f_destino.write, chunk)
-    finally:
+    except HTTPException:
         await loop.run_in_executor(None, f_destino.close)
+        if os.path.exists(ruta):
+            os.remove(ruta)
+        raise
+    finally:
+        if not f_destino.closed:
+            await loop.run_in_executor(None, f_destino.close)
 
     return nombre
 
@@ -67,9 +109,13 @@ def _get_estado_id(db: Session, nombre: str) -> int:
 
 
 def tarea_procesar_video(procesamiento_id: int, nombre_archivo: str, usuario_id: int):
+    """Dispara el procesamiento en Modal (GPU remota). NO procesa localmente.
+    Genera una URL firmada (TTL corto) para que Modal descargue el video
+    original e invoca el endpoint de Modal. El resultado llega después por
+    callback a POST /procesamientos/{id}/resultado-ia.
+    El estado ya viene en 'procesando' desde el endpoint subir_video."""
     db: Session = SessionLocal()
     procesamiento = None
-
     try:
         procesamiento = db.query(ProcesamientoVideo).filter(
             ProcesamientoVideo.id == procesamiento_id
@@ -77,49 +123,41 @@ def tarea_procesar_video(procesamiento_id: int, nombre_archivo: str, usuario_id:
         if not procesamiento:
             return
 
-        procesamiento.estado_id = _get_estado_id(db, "procesando")
-        db.commit()
-
-        ruta_entrada = obtener_ruta_fisica(nombre_archivo)
-        nombre_salida = f"{procesamiento_id}_anotado.mp4"
-        ruta_salida = obtener_ruta_fisica(nombre_salida)
-
-        ia = ProcesadorVideoYOLO()
-        resultados = ia.procesar(video_entrada_path=ruta_entrada, video_salida_path=ruta_salida)
-
-        procesamiento.video_anotado_url = nombre_salida
-        procesamiento.estado_id = _get_estado_id(db, "completado")
-        procesamiento.updated_by = usuario_id
-
-        resultado = ResultadoIa(
-            procesamiento_id=procesamiento.id,
-            conteo_ia=resultados["total"],
-            tiempo_procesamiento_seg=resultados["tiempo_segundos"],
-            total_frames_procesados=resultados["frames_procesados"],
-            created_by=usuario_id,
+        # URL firmada (TTL 15 min) para que Modal descargue el original
+        token = generar_token_descarga(procesamiento_id)
+        url_video = (
+            f"{settings.PUBLIC_BASE_URL}/procesamientos/"
+            f"{procesamiento_id}/video-original?token={token}"
         )
-        db.add(resultado)
-        db.flush()
 
-        conteo = db.query(Conteo).filter(Conteo.id == procesamiento.conteo_id).first()
-        todos = db.query(ResultadoIa).join(ProcesamientoVideo).filter(
-            ProcesamientoVideo.conteo_id == conteo.id
-        ).all()
-        conteo.conteo_total_acumulado = sum(
-            (r.conteo_ajustado if r.conteo_ajustado is not None else r.conteo_ia)
-            for r in todos
+        payload = {
+            "procesamiento_id": procesamiento_id,
+            "url_video": url_video,
+            "callback_base_url": settings.PUBLIC_BASE_URL,
+            "trigger_secret": settings.MODAL_CALLBACK_SECRET,
+        }
+        #headers = {"X-Modal-Trigger-Secret": settings.MODAL_CALLBACK_SECRET}
+
+        resp = httpx.post(
+            settings.MODAL_ENDPOINT_URL,
+            json=payload,
+            timeout=30.0,
         )
-        conteo.updated_by = usuario_id
-        db.commit()
+        resp.raise_for_status()
+        # Modal aceptó el trabajo. El resultado llegará por callback.
 
     except Exception as e:
-        print(f"Error procesando video {procesamiento_id}: {e}")
+        print(f"Error al disparar Modal para {procesamiento_id}: {e}")
         db.rollback()
         if procesamiento:
             try:
-                procesamiento.estado_id = _get_estado_id(db, "error")
-                procesamiento.updated_by = usuario_id
-                db.commit()
+                estado_error = db.query(EstadoProcesamiento).filter(
+                    EstadoProcesamiento.nombre == "error"
+                ).first()
+                if estado_error:
+                    procesamiento.estado_id = estado_error.id
+                    procesamiento.updated_by = usuario_id
+                    db.commit()
             except Exception:
                 pass
     finally:
