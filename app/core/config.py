@@ -25,6 +25,9 @@ class Settings:
 
     MODAL_ENDPOINT_URL: str = os.environ.get("MODAL_ENDPOINT_URL", "")
 
+    # URL de redis
+    REDIS_URL: str = os.environ.get("REDIS_URL", "")
+
     # Orígenes CORS separados por coma, en producción solo el dominio real
     CORS_ORIGINS: list[str] = [
         origen.strip()

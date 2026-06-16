@@ -1,5 +1,5 @@
 from typing import List
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, BackgroundTasks, Header
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, BackgroundTasks, Header, Request
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from datetime import datetime
@@ -16,6 +16,7 @@ from app.services import video_service
 from app.core.firma import validar_token_descarga
 import secrets
 from app.core.config import settings
+from app.core import progreso
 
 router = APIRouter(prefix="/procesamientos", tags=["Procesamientos"])
 
@@ -54,21 +55,20 @@ def _get_procesamiento_cualquiera(procesamiento_id: int, db: Session) -> Procesa
 
 @router.post("/{procesamiento_id}/resultado-ia")
 async def recibir_resultado_ia(
-    procesamiento_id: int,
-    x_modal_secret: str = Header(...),
-    conteo_ia: int = Form(...),
-    tiempo_procesamiento_seg: float = Form(None),
-    total_frames_procesados: int = Form(None),
-    promedio_confianza: float = Form(None),
-    porcentaje_baja_confianza: float = Form(None),
-    porcentaje_ocluidos: float = Form(None),
-    nivel_confiabilidad: str = Form(None),
-    total_detecciones_brutas: int = Form(None),
-    video_anotado: UploadFile = File(...),
-    db: Session = Depends(get_db),
+        procesamiento_id: int,
+        x_modal_secret: str = Header(...),
+        conteo_ia: int = Form(...),
+        tiempo_procesamiento_seg: float = Form(None),
+        total_frames_procesados: int = Form(None),
+        promedio_confianza: float = Form(None),
+        porcentaje_baja_confianza: float = Form(None),
+        porcentaje_ocluidos: float = Form(None),
+        nivel_confiabilidad: str = Form(None),
+        total_detecciones_brutas: int = Form(None),
+        error_msg: str = Form(None),
+        video_anotado: UploadFile = File(None),
+        db: Session = Depends(get_db),
 ):
-    #Callback que Modal invoca al terminar de procesar el video, autenticado por secreto compartido (no por token de usuario), guarda el video anotado, crea el resultado_ia y recalcula el acumulado."""
-
     # Validación del secreto en tiempo constante
     if not secrets.compare_digest(x_modal_secret, settings.MODAL_CALLBACK_SECRET):
         raise HTTPException(status_code=403, detail="Secreto inválido.")
@@ -82,7 +82,26 @@ async def recibir_resultado_ia(
 
     # Si ya tiene resultado, ignoramos (callback duplicado / reintento)
     if proc.resultado:
+        progreso.limpiar_progreso(procesamiento_id)
         return {"detail": "Resultado ya registrado, callback ignorado."}
+
+    #caso de error: Modal manda conteo_ia negativo
+    if conteo_ia is not None and conteo_ia < 0:
+        estado_error = db.query(EstadoProcesamiento).filter(
+            EstadoProcesamiento.nombre == "error"
+        ).first()
+        if estado_error:
+            proc.estado_id = estado_error.id
+            db.commit()
+        progreso.limpiar_progreso(procesamiento_id)
+        return {"detail": f"Procesamiento marcado como error: {error_msg or 'desconocido'}"}
+
+    #camino feliz: tiene que venir el video anotado
+    if video_anotado is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Falta el video anotado para un resultado exitoso.",
+        )
 
     # Guardar el video anotado en disco (es liviano, 720p)
     nombre_salida = f"{procesamiento_id}_anotado.mp4"
@@ -95,13 +114,13 @@ async def recibir_resultado_ia(
                     break
                 f.write(chunk)
     except Exception:
-        # Si falla guardar el archivo, marcamos error y abortamos
         estado_error = db.query(EstadoProcesamiento).filter(
             EstadoProcesamiento.nombre == "error"
         ).first()
         if estado_error:
             proc.estado_id = estado_error.id
             db.commit()
+        progreso.limpiar_progreso(procesamiento_id)
         raise HTTPException(status_code=500, detail="No se pudo guardar el video anotado.")
 
     # Escribir el resultado de IA
@@ -139,8 +158,60 @@ async def recibir_resultado_ia(
     )
     db.commit()
 
+    # Limpiar el progreso efímero
+    progreso.limpiar_progreso(procesamiento_id)
+
     return {"detail": "Resultado registrado correctamente."}
 
+
+@router.post("/{procesamiento_id}/progreso")
+async def reportar_progreso(
+        procesamiento_id: int,
+        request: Request,
+        x_modal_secret: str = Header(...),
+):
+    #Recibe el progreso en vivo desde Modal mientras procesa el video, autenticado con el mismo secreto compartido que el callback de resultado, solo escribe en Redis (efímero), no toca la base de datos. Es best-effort: si algo falla, devuelve 200 igual para no entorpecer el procesamiento
+    #Body JSON esperado: {"progreso_pct": int, "conteo_parcial": int}
+
+    # Validación del secreto en tiempo constante
+    if not secrets.compare_digest(x_modal_secret, settings.MODAL_CALLBACK_SECRET):
+        raise HTTPException(status_code=403, detail="Secreto inválido.")
+
+    try:
+        datos = await request.json()
+        pct = int(datos.get("progreso_pct", 0))
+        parcial = int(datos.get("conteo_parcial", 0))
+    except Exception:
+        # Body malformado: lo ignoramos sin romper nada
+        return {"detail": "Progreso ignorado (body inválido)."}
+
+    # Acotar el porcentaje a [0, 99]. El 100 lo da el resultado final, no el progreso, para evitar mostrar "100%" antes de que exista el resultado.
+    pct = max(0, min(99, pct))
+
+    progreso.set_progreso(procesamiento_id, pct, parcial)
+    return {"detail": "Progreso registrado."}
+
+
+@router.get("/{procesamiento_id}/progreso")
+def consultar_progreso(
+        procesamiento_id: int,
+        db: Session = Depends(get_db),
+        usuario: Usuario = Depends(requiere_operador),
+):
+    #Devuelve el progreso en vivo para que la app móvil lo muestre, lo consulta el polling de la pantalla de procesamiento. Si no hay progreso en Redis (aún no empieza, ya terminó, o Redis no está disponible), devuelve valores en cero: la UI simplemente mostrará el spinner sin barra.
+
+    # Verifica acceso del usuario a este procesamiento (reutiliza el helper)
+    _get_procesamiento_del_usuario(procesamiento_id, usuario, db)
+
+    datos = progreso.get_progreso(procesamiento_id)
+    if not datos:
+        return {"progreso_pct": 0, "conteo_parcial": 0, "disponible": False}
+
+    return {
+        "progreso_pct": datos.get("progreso_pct", 0),
+        "conteo_parcial": datos.get("conteo_parcial", 0),
+        "disponible": True,
+    }
 
 
 @router.get("/{procesamiento_id}/video-original")
@@ -161,7 +232,7 @@ def descargar_video_original(
     if not proc:
         raise HTTPException(status_code=404, detail="Procesamiento no encontrado.")
 
-    # El original se guardó como {id}_original.{ext}. Buscamos el archivo real.
+    # El original se guardó como {id}_original.{ext}, busca el archivo real.
     ruta = None
     for ext in ("mp4", "mov", "avi", "mkv"):
         candidata = video_service.obtener_ruta_fisica(f"{procesamiento_id}_original.{ext}")
