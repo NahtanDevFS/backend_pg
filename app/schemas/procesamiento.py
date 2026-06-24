@@ -1,6 +1,7 @@
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 from datetime import datetime
 from typing import Optional
+from app.core.confiabilidad import derivar_nivel
 
 
 class AjusteResultadoRequest(BaseModel):
@@ -17,12 +18,15 @@ class ResultadoIaResponse(BaseModel):
     # Campos de confiabilidad requeridos por la app móvil
     promedio_confianza: Optional[float] = None
     porcentaje_baja_confianza: Optional[float] = None
-    porcentaje_ocluidos: Optional[float] = None
-    nivel_confiabilidad: Optional[str] = None  # "alto", "moderado", "bajo"
     total_frames_procesados: Optional[int] = None
-    total_detecciones_brutas: Optional[int] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+    @computed_field
+    @property
+    def nivel_confiabilidad(self) -> Optional[str]:
+        #Nivel derivado ('alto', 'moderado', 'bajo') de este video. None si no hay métricas.
+        return derivar_nivel(self.promedio_confianza, self.porcentaje_baja_confianza)
 
 
 class ProcesamientoResponse(BaseModel):

@@ -10,6 +10,3 @@ class ResultadoIaCallback(BaseModel):
     # Métricas de confiabilidad
     promedio_confianza: Optional[float] = None
     porcentaje_baja_confianza: Optional[float] = None
-    porcentaje_ocluidos: Optional[float] = None
-    nivel_confiabilidad: Optional[str] = None
-    total_detecciones_brutas: Optional[int] = None

@@ -7,8 +7,8 @@ import os
 from app.core.database import get_db
 from app.core.config import settings
 from app.models.models import (
-    Usuario, Cultivo, Conteo,
-    ProcesamientoVideo, ResultadoIa, EstadoProcesamiento, CultivoOperador
+    Usuario, CampoCultivo, Conteo,
+    ProcesamientoVideo, ResultadoIa, EstadoProcesamiento, CampoCultivoOperador
 )
 from app.schemas.procesamiento import ProcesamientoResponse, AjusteResultadoRequest
 from app.api.deps import obtener_usuario_actual, requiere_admin, requiere_operador
@@ -31,10 +31,10 @@ def _get_procesamiento_del_usuario(procesamiento_id: int, usuario: Usuario, db: 
     if not proc:
         raise HTTPException(status_code=404, detail="Procesamiento no encontrado.")
 
-    acceso = db.query(CultivoOperador).join(Conteo, Conteo.cultivo_id == CultivoOperador.cultivo_id).filter(
+    acceso = db.query(CampoCultivoOperador).join(Conteo, Conteo.campo_cultivo_id == CampoCultivoOperador.campo_cultivo_id).filter(
         Conteo.id == proc.conteo_id,
-        CultivoOperador.usuario_id == usuario.id,
-        CultivoOperador.activo == True,
+        CampoCultivoOperador.usuario_id == usuario.id,
+        CampoCultivoOperador.activo == True,
     ).first()
     if not acceso:
         raise HTTPException(status_code=403, detail="No tienes acceso a este procesamiento.")
@@ -62,9 +62,6 @@ async def recibir_resultado_ia(
         total_frames_procesados: int = Form(None),
         promedio_confianza: float = Form(None),
         porcentaje_baja_confianza: float = Form(None),
-        porcentaje_ocluidos: float = Form(None),
-        nivel_confiabilidad: str = Form(None),
-        total_detecciones_brutas: int = Form(None),
         error_msg: str = Form(None),
         video_anotado: UploadFile = File(None),
         db: Session = Depends(get_db),
@@ -131,9 +128,6 @@ async def recibir_resultado_ia(
         total_frames_procesados=total_frames_procesados,
         promedio_confianza=promedio_confianza,
         porcentaje_baja_confianza=porcentaje_baja_confianza,
-        porcentaje_ocluidos=porcentaje_ocluidos,
-        nivel_confiabilidad=nivel_confiabilidad,
-        total_detecciones_brutas=total_detecciones_brutas,
         created_by=proc.created_by,
     )
     db.add(resultado)
@@ -147,6 +141,7 @@ async def recibir_resultado_ia(
     db.flush()
 
     # Recalcular el acumulado del conteo
+    # Recalcular el acumulado del conteo
     conteo = db.query(Conteo).filter(Conteo.id == proc.conteo_id).first()
     todos = db.query(ResultadoIa).join(ProcesamientoVideo).filter(
         ProcesamientoVideo.conteo_id == conteo.id,
@@ -156,6 +151,34 @@ async def recibir_resultado_ia(
         (r.conteo_ajustado if r.conteo_ajustado is not None else r.conteo_ia)
         for r in todos
     )
+
+    # Recalcular agregados de confiabilidad de la sesión, ponderados por
+    # total_frames_procesados. Solo se consideran los videos que tienen
+    # métricas y frames (> 0); los videos sin detecciones no arrastran el
+    # promedio. Si ningún video tiene métricas, los agregados quedan en None.
+    con_metricas = [
+        r for r in todos
+        if r.promedio_confianza is not None
+           and r.porcentaje_baja_confianza is not None
+           and r.total_frames_procesados
+           and r.total_frames_procesados > 0
+    ]
+    total_frames = sum(r.total_frames_procesados for r in con_metricas)
+    if total_frames > 0:
+        conteo.promedio_confianza_sesion = round(
+            sum(float(r.promedio_confianza) * r.total_frames_procesados for r in con_metricas)
+            / total_frames,
+            4,
+        )
+        conteo.porcentaje_baja_confianza_sesion = round(
+            sum(float(r.porcentaje_baja_confianza) * r.total_frames_procesados for r in con_metricas)
+            / total_frames,
+            4,
+        )
+    else:
+        conteo.promedio_confianza_sesion = None
+        conteo.porcentaje_baja_confianza_sesion = None
+
     db.commit()
 
     # Limpiar el progreso efímero
@@ -260,13 +283,13 @@ def registrar_procesamiento(
     if not conteo:
         raise HTTPException(status_code=404, detail="Conteo no encontrado.")
 
-    acceso = db.query(CultivoOperador).filter(
-        CultivoOperador.cultivo_id == conteo.cultivo_id,
-        CultivoOperador.usuario_id == usuario.id,
-        CultivoOperador.activo == True,
+    acceso = db.query(CampoCultivoOperador).filter(
+        CampoCultivoOperador.campo_cultivo_id == conteo.campo_cultivo_id,
+        CampoCultivoOperador.usuario_id == usuario.id,
+        CampoCultivoOperador.activo == True,
     ).first()
     if not acceso:
-        raise HTTPException(status_code=403, detail="No tienes acceso a este cultivo.")
+        raise HTTPException(status_code=403, detail="No tienes acceso a este campo de cultivo.")
 
     estado_pendiente = db.query(EstadoProcesamiento).filter(
         EstadoProcesamiento.nombre == "pendiente"
@@ -303,13 +326,13 @@ def listar_por_conteo(
     if not conteo:
         raise HTTPException(status_code=404, detail="Conteo no encontrado.")
 
-    acceso = db.query(CultivoOperador).filter(
-        CultivoOperador.cultivo_id == conteo.cultivo_id,
-        CultivoOperador.usuario_id == usuario.id,
-        CultivoOperador.activo == True,
+    acceso = db.query(CampoCultivoOperador).filter(
+        CampoCultivoOperador.campo_cultivo_id == conteo.campo_cultivo_id,
+        CampoCultivoOperador.usuario_id == usuario.id,
+        CampoCultivoOperador.activo == True,
     ).first()
     if not acceso:
-        raise HTTPException(status_code=403, detail="No tienes acceso a este cultivo.")
+        raise HTTPException(status_code=403, detail="No tienes acceso a este campo de cultivo.")
 
     return db.query(ProcesamientoVideo).filter(
         ProcesamientoVideo.conteo_id == conteo_id,

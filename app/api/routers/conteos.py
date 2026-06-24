@@ -3,7 +3,7 @@ from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from app.core.database import get_db
-from app.models.models import Usuario, Cultivo, Conteo, EstadoConteo, ClasificacionCalibre, Calibre, CultivoOperador
+from app.models.models import Usuario, CampoCultivo, Conteo, EstadoConteo, ClasificacionCalibreConteo, CalibreMelon, CampoCultivoOperador
 from app.schemas.conteo import ConteoCreate, ConteoResponse, ComparacionAnteriorResponse
 from app.schemas.muestreo import MuestreoRequest, MuestreoResponse, ClasificacionResponse
 from app.api.deps import obtener_usuario_actual, requiere_admin, requiere_operador
@@ -14,7 +14,7 @@ router = APIRouter(prefix="/conteos", tags=["Conteos"])
 #Helpers
 
 def _get_conteo_del_usuario(conteo_id: int, usuario: Usuario, db: Session) -> Conteo:
-    #Devuelve un conteo verificando que el operador tiene acceso al cultivo correspondiente a través de cultivo_operador
+    #Devuelve un conteo verificando que el operador tiene acceso al campo de cultivo correspondiente a través de campo_cultivo_operador
     conteo = db.query(Conteo).filter(
         Conteo.id == conteo_id,
         Conteo.activo == True
@@ -22,10 +22,10 @@ def _get_conteo_del_usuario(conteo_id: int, usuario: Usuario, db: Session) -> Co
     if not conteo:
         raise HTTPException(status_code=404, detail="Conteo no encontrado.")
 
-    acceso = db.query(CultivoOperador).filter(
-        CultivoOperador.cultivo_id == conteo.cultivo_id,
-        CultivoOperador.usuario_id == usuario.id,
-        CultivoOperador.activo == True,
+    acceso = db.query(CampoCultivoOperador).filter(
+        CampoCultivoOperador.campo_cultivo_id == conteo.campo_cultivo_id,
+        CampoCultivoOperador.usuario_id == usuario.id,
+        CampoCultivoOperador.activo == True,
     ).first()
     if not acceso:
         raise HTTPException(status_code=403, detail="No tienes acceso a este conteo.")
@@ -44,10 +44,10 @@ def _get_conteo_cualquiera(conteo_id: int, db: Session) -> Conteo:
 
 
 def _build_muestreo_response(conteo: Conteo, db: Session) -> MuestreoResponse:
-    clasificaciones = db.query(ClasificacionCalibre).join(Calibre).filter(
-        ClasificacionCalibre.conteo_id == conteo.id,
-        ClasificacionCalibre.activo == True
-    ).order_by(Calibre.orden).all()
+    clasificaciones = db.query(ClasificacionCalibreConteo).join(CalibreMelon).filter(
+        ClasificacionCalibreConteo.conteo_id == conteo.id,
+        ClasificacionCalibreConteo.activo == True
+    ).order_by(CalibreMelon.orden).all()
 
     total_muestreo = clasificaciones[0].total_muestreo if clasificaciones else 0
 
@@ -77,27 +77,27 @@ def crear_conteo(
     db: Session = Depends(get_db),
     usuario: Usuario = Depends(requiere_operador)
 ):
-    cultivo = db.query(Cultivo).filter(
-        Cultivo.id == conteo_in.cultivo_id,
-        Cultivo.activo == True
+    cultivo = db.query(CampoCultivo).filter(
+        CampoCultivo.id == conteo_in.campo_cultivo_id,
+        CampoCultivo.activo == True
     ).first()
     if not cultivo:
-        raise HTTPException(status_code=404, detail="Cultivo no encontrado.")
+        raise HTTPException(status_code=404, detail="Campo de cultivo no encontrado.")
 
-    acceso = db.query(CultivoOperador).filter(
-        CultivoOperador.cultivo_id == cultivo.id,
-        CultivoOperador.usuario_id == usuario.id,
-        CultivoOperador.activo == True,
+    acceso = db.query(CampoCultivoOperador).filter(
+        CampoCultivoOperador.campo_cultivo_id == cultivo.id,
+        CampoCultivoOperador.usuario_id == usuario.id,
+        CampoCultivoOperador.activo == True,
     ).first()
     if not acceso:
-        raise HTTPException(status_code=403, detail="No tienes acceso a este cultivo.")
+        raise HTTPException(status_code=403, detail="No tienes acceso a este campo de cultivo.")
 
     estado_inicial = db.query(EstadoConteo).filter(EstadoConteo.nombre == "en_progreso").first()
     if not estado_inicial:
         raise HTTPException(status_code=500, detail="Estado 'en_progreso' no encontrado en catálogo.")
 
     nuevo = Conteo(
-        cultivo_id=conteo_in.cultivo_id,
+        campo_cultivo_id=conteo_in.campo_cultivo_id,
         variedad_id=conteo_in.variedad_id,
         estado_id=estado_inicial.id,
         fecha_conteo=conteo_in.fecha_conteo,
@@ -122,23 +122,23 @@ def listar_conteos_por_cultivo(
     db:      Session = Depends(get_db),
     usuario: Usuario = Depends(requiere_operador)
 ):
-    cultivo = db.query(Cultivo).filter(
-        Cultivo.id == cultivo_id,
-        Cultivo.activo == True
+    cultivo = db.query(CampoCultivo).filter(
+        CampoCultivo.id == cultivo_id,
+        CampoCultivo.activo == True
     ).first()
     if not cultivo:
-        raise HTTPException(status_code=404, detail="Cultivo no encontrado.")
+        raise HTTPException(status_code=404, detail="Campo de cultivo no encontrado.")
 
-    acceso = db.query(CultivoOperador).filter(
-        CultivoOperador.cultivo_id == cultivo_id,
-        CultivoOperador.usuario_id == usuario.id,
-        CultivoOperador.activo == True,
+    acceso = db.query(CampoCultivoOperador).filter(
+        CampoCultivoOperador.campo_cultivo_id == cultivo_id,
+        CampoCultivoOperador.usuario_id == usuario.id,
+        CampoCultivoOperador.activo == True,
     ).first()
     if not acceso:
-        raise HTTPException(status_code=403, detail="No tienes acceso a este cultivo.")
+        raise HTTPException(status_code=403, detail="No tienes acceso a este campo de cultivo.")
 
     query = db.query(Conteo).filter(
-        Conteo.cultivo_id == cultivo_id,
+        Conteo.campo_cultivo_id == cultivo_id,
         Conteo.activo == True
     )
     if fecha_desde:
@@ -168,14 +168,14 @@ def historial_global(
     db: Session = Depends(get_db),
     _: Usuario  = Depends(requiere_admin)
 ):
-    #Devuelve todos los conteos activos del sistema con filtros opcionales, ?cultivo_id=X solo conteos de ese cultivo, ?usuario_id=X    → solo conteos de cultivos de ese operador, fecha_desde=YYYY-MM-DD y ?fecha_hasta=YYYY-MM-DD → rango de fechas
+    #Devuelve todos los conteos activos del sistema con filtros opcionales, ?cultivo_id=X solo conteos de ese campo de cultivo, ?usuario_id=X → solo conteos de campos de ese operador, fecha_desde=YYYY-MM-DD y ?fecha_hasta=YYYY-MM-DD → rango de fechas
 
-    query = db.query(Conteo).join(Cultivo).filter(Conteo.activo == True)
+    query = db.query(Conteo).join(CampoCultivo).filter(Conteo.activo == True)
 
     if cultivo_id:
-        query = query.filter(Conteo.cultivo_id == cultivo_id)
+        query = query.filter(Conteo.campo_cultivo_id == cultivo_id)
     if usuario_id:
-        query = query.filter(Cultivo.usuario_id == usuario_id)
+        query = query.filter(CampoCultivo.usuario_id == usuario_id)
     if fecha_desde:
         query = query.filter(Conteo.fecha_conteo >= fecha_desde)
     if fecha_hasta:
@@ -243,7 +243,7 @@ def comparar_con_anterior(
     usuario: Usuario = Depends(requiere_operador)
 ):
     """
-    Devuelve el conteo completado inmediatamente anterior del mismo cultivo
+    Devuelve el conteo completado inmediatamente anterior del mismo campo de cultivo
     y calcula la variación porcentual respecto al conteo actual.
     """
     conteo_actual = _get_conteo_del_usuario(conteo_id, usuario, db)
@@ -256,7 +256,7 @@ def comparar_con_anterior(
         return ComparacionAnteriorResponse(hay_historial=False)
 
     anterior = db.query(Conteo).filter(
-        Conteo.cultivo_id == conteo_actual.cultivo_id,
+        Conteo.campo_cultivo_id == conteo_actual.campo_cultivo_id,
         Conteo.id != conteo_id,
         Conteo.estado_id == estado_completado.id,
         Conteo.activo == True,
@@ -300,19 +300,19 @@ def guardar_muestreo(
             detail=f"La suma de cantidades por calibre ({suma}) debe ser igual al total del muestreo ({datos.total_muestreo})."
         )
 
-    db.query(ClasificacionCalibre).filter(
-        ClasificacionCalibre.conteo_id == conteo_id
+    db.query(ClasificacionCalibreConteo).filter(
+        ClasificacionCalibreConteo.conteo_id == conteo_id
     ).delete()
 
     for item in datos.items:
-        calibre = db.query(Calibre).filter(Calibre.id == item.calibre_id).first()
+        calibre = db.query(CalibreMelon).filter(CalibreMelon.id == item.calibre_id).first()
         if not calibre:
             raise HTTPException(status_code=404, detail=f"Calibre {item.calibre_id} no encontrado.")
 
         porcentaje = round(item.cantidad_muestreo / datos.total_muestreo * 100, 2)
         cantidad_extrapolada = round(porcentaje * conteo.conteo_total_acumulado / 100)
 
-        db.add(ClasificacionCalibre(
+        db.add(ClasificacionCalibreConteo(
             conteo_id=conteo_id,
             calibre_id=item.calibre_id,
             cantidad_muestreo=item.cantidad_muestreo,

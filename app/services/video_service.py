@@ -129,6 +129,7 @@ def tarea_procesar_video(procesamiento_id: int, nombre_archivo: str, usuario_id:
             f"{settings.PUBLIC_BASE_URL}/procesamientos/"
             f"{procesamiento_id}/video-original?token={token}"
         )
+        #print(f"[DEBUG] url_video -> {url_video}")
 
         payload = {
             "procesamiento_id": procesamiento_id,
