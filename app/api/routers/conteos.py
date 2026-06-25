@@ -4,9 +4,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.models.models import Usuario, CampoCultivo, Conteo, EstadoConteo, ClasificacionCalibreConteo, CalibreMelon, CampoCultivoOperador
-from app.schemas.conteo import ConteoCreate, ConteoResponse, ComparacionAnteriorResponse, HistorialPaginadoResponse
+from app.schemas.conteo import ConteoCreate, ConteoResponse, ComparacionAnteriorResponse, HistorialPaginadoResponse, CambiarEstadoConteoRequest
 from app.schemas.muestreo import MuestreoRequest, MuestreoResponse, ClasificacionResponse
 from app.api.deps import obtener_usuario_actual, requiere_admin, requiere_operador
+
 
 router = APIRouter(prefix="/conteos", tags=["Conteos"])
 
@@ -239,11 +240,45 @@ def completar_conteo(
     usuario: Usuario = Depends(requiere_operador)
 ):
     conteo = _get_conteo_del_usuario(conteo_id, usuario, db)
+
+    # No se puede completar un conteo sin videos procesados
+    if conteo.conteo_total_acumulado == 0:
+        raise HTTPException(
+            status_code=400,
+            detail="No se puede completar: el conteo aún no tiene videos procesados.",
+        )
+
     estado = db.query(EstadoConteo).filter(EstadoConteo.nombre == "completado").first()
     conteo.estado_id = estado.id
     conteo.updated_by = usuario.id
     db.commit()
     return {"mensaje": "Conteo marcado como completado."}
+
+
+@router.patch("/admin/{conteo_id}/estado", response_model=ConteoResponse)
+def cambiar_estado_conteo_admin(
+    conteo_id: int,
+    datos: CambiarEstadoConteoRequest,
+    db: Session = Depends(get_db),
+    admin: Usuario = Depends(requiere_admin),
+):
+    #Permite al administrador mover libremente el conteo entre estados
+    #(p.ej. reabrir un completado a 'en_progreso' o viceversa). Pensado para
+    #corregir errores desde la web administrativa.
+    conteo = _get_conteo_cualquiera(conteo_id, db)
+
+    estado = db.query(EstadoConteo).filter(
+        EstadoConteo.id == datos.estado_id,
+        EstadoConteo.activo == True,
+    ).first()
+    if not estado:
+        raise HTTPException(status_code=404, detail="El estado indicado no existe.")
+
+    conteo.estado_id = estado.id
+    conteo.updated_by = admin.id
+    db.commit()
+    db.refresh(conteo)
+    return conteo
 
 
 @router.get(

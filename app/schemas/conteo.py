@@ -86,3 +86,8 @@ class HistorialPaginadoResponse(BaseModel):
     #Respuesta paginada del historial: la tanda de conteos + el total global (para que el frontend calcule cuántas páginas hay)
     items: List[ConteoResponse]
     total: int
+
+
+class CambiarEstadoConteoRequest(BaseModel):
+    #El admin puede mover el conteo a cualquier estado por su id (libre).
+    estado_id: int
