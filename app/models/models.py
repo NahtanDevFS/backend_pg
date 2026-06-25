@@ -212,6 +212,7 @@ class Conteo(Base):
     porcentaje_baja_confianza_sesion: Mapped[Optional[float]] = mapped_column(Numeric(5, 4))
 
     cultivo: Mapped["CampoCultivo"] = relationship(back_populates="conteos", foreign_keys="[Conteo.campo_cultivo_id]")
+    creador: Mapped["Usuario"] = relationship(foreign_keys="[Conteo.created_by]", viewonly=True)
     variedad: Mapped["VariedadMelon"] = relationship(back_populates="conteos", foreign_keys="[Conteo.variedad_id]")
     estado: Mapped["EstadoConteo"] = relationship(back_populates="conteos", foreign_keys="[Conteo.estado_id]")
     procesamientos: Mapped[List["ProcesamientoVideo"]]   = relationship(back_populates="conteo", foreign_keys="[ProcesamientoVideo.conteo_id]", cascade="all, delete-orphan")

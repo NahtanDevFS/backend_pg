@@ -20,6 +20,8 @@ class ConteoUpdate(BaseModel):
 class ConteoResponse(BaseModel):
     id: int
     campo_cultivo_id: int
+    # nombre desnormalizado del campo de cultivo, resuelto desde la relación ORM
+    cultivo_nombre: Optional[str] = None
     variedad_id: int
     # nombre desnormalizado de la variedad, resuelto desde la relación ORM
     variedad_nombre: Optional[str] = None
@@ -33,17 +35,31 @@ class ConteoResponse(BaseModel):
     activo: bool
     created_at: datetime
     created_by: int
+    # nombre desnormalizado del operador que creó el conteo (relación 'creador')
+    operador_nombre: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
     @model_validator(mode="before")
     @classmethod
-    def _extraer_variedad_nombre(cls, data: Any) -> Any:
-        #Inyecta variedad_nombre leyendo la relación ORM 'variedad'
+    def _extraer_nombres(cls, data: Any) -> Any:
+        #Inyecta los nombres desnormalizados leyendo las relaciones ORM (variedad, cultivo, creador). Se conserva el objeto original para que Pydantic siga resolviendo el resto por from_attributes.
         variedad = getattr(data, "variedad", None)
         if variedad is not None:
             try:
                 object.__setattr__(data, "variedad_nombre", variedad.nombre)
+            except Exception:
+                pass
+        cultivo = getattr(data, "cultivo", None)
+        if cultivo is not None:
+            try:
+                object.__setattr__(data, "cultivo_nombre", cultivo.nombre)
+            except Exception:
+                pass
+        creador = getattr(data, "creador", None)
+        if creador is not None:
+            try:
+                object.__setattr__(data, "operador_nombre", creador.nombre)
             except Exception:
                 pass
         return data
@@ -65,3 +81,8 @@ class ComparacionAnteriorResponse(BaseModel):
     conteo_anterior_fecha: Optional[date] = None
     variacion_porcentual: Optional[float] = None  # positivo = subió, negativo = bajó
     hay_historial: bool
+
+class HistorialPaginadoResponse(BaseModel):
+    #Respuesta paginada del historial: la tanda de conteos + el total global (para que el frontend calcule cuántas páginas hay)
+    items: List[ConteoResponse]
+    total: int

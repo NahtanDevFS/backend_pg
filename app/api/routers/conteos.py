@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.models.models import Usuario, CampoCultivo, Conteo, EstadoConteo, ClasificacionCalibreConteo, CalibreMelon, CampoCultivoOperador
-from app.schemas.conteo import ConteoCreate, ConteoResponse, ComparacionAnteriorResponse
+from app.schemas.conteo import ConteoCreate, ConteoResponse, ComparacionAnteriorResponse, HistorialPaginadoResponse
 from app.schemas.muestreo import MuestreoRequest, MuestreoResponse, ClasificacionResponse
 from app.api.deps import obtener_usuario_actual, requiere_admin, requiere_operador
 
@@ -157,31 +157,44 @@ def listar_conteos_por_cultivo(
 
 @router.get(
     "/admin/historial",
-    response_model=List[ConteoResponse],
-    summary="Historial global de conteos (solo Administrador)"
+    response_model=HistorialPaginadoResponse,
+    summary="Historial global de conteos paginado (solo Administrador)"
 )
 def historial_global(
     cultivo_id:    Optional[int]  = None,
     usuario_id:    Optional[int]  = None,
     fecha_desde:   Optional[date] = None,
     fecha_hasta:   Optional[date] = None,
+    skip:          int            = 0,
+    limit:         int            = 20,
     db: Session = Depends(get_db),
     _: Usuario  = Depends(requiere_admin)
 ):
-    #Devuelve todos los conteos activos del sistema con filtros opcionales, ?cultivo_id=X solo conteos de ese campo de cultivo, ?usuario_id=X → solo conteos de campos de ese operador, fecha_desde=YYYY-MM-DD y ?fecha_hasta=YYYY-MM-DD → rango de fechas
+    #Devuelve los conteos activos del sistema, paginados, con filtros opcionales.
+    #?cultivo_id=X solo conteos de ese campo; ?usuario_id=X conteos de campos de
+    #ese operador; ?fecha_desde / ?fecha_hasta rango de fechas. La respuesta
+    #incluye 'items' (la página actual) y 'total' (conteos que cumplen el filtro,
+    #para que el frontend calcule el número de páginas).
 
-    query = db.query(Conteo).join(CampoCultivo).filter(Conteo.activo == True)
+    query = db.query(Conteo).filter(Conteo.activo == True)
 
     if cultivo_id:
         query = query.filter(Conteo.campo_cultivo_id == cultivo_id)
     if usuario_id:
-        query = query.filter(CampoCultivo.usuario_id == usuario_id)
+        query = query.filter(Conteo.created_by == usuario_id)
     if fecha_desde:
         query = query.filter(Conteo.fecha_conteo >= fecha_desde)
     if fecha_hasta:
         query = query.filter(Conteo.fecha_conteo <= fecha_hasta)
 
-    return query.order_by(Conteo.fecha_conteo.desc()).all()
+    total = query.count()
+    items = (
+        query.order_by(Conteo.fecha_conteo.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+    return {"items": items, "total": total}
 
 
 @router.get(
