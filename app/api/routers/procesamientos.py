@@ -23,11 +23,12 @@ router = APIRouter(prefix="/procesamientos", tags=["Procesamientos"])
 
 #Helpers
 
-def _get_procesamiento_del_usuario(procesamiento_id: int, usuario: Usuario, db: Session) -> ProcesamientoVideo:
-    proc = db.query(ProcesamientoVideo).filter(
-        ProcesamientoVideo.id == procesamiento_id,
-        ProcesamientoVideo.activo == True
-    ).first()
+def _get_procesamiento_del_usuario(procesamiento_id: int, usuario: Usuario, db: Session, incluir_inactivos: bool = False) -> ProcesamientoVideo:
+    #incluir_inactivos=True permite leer procesamientos cancelados (activo=False), necesario para que la pantalla pueda mostrar el estado 'cancelado'. Las acciones (subir, ajustar) lo dejan en False para no operar sobre cancelados.
+    q = db.query(ProcesamientoVideo).filter(ProcesamientoVideo.id == procesamiento_id)
+    if not incluir_inactivos:
+        q = q.filter(ProcesamientoVideo.activo == True)
+    proc = q.first()
     if not proc:
         raise HTTPException(status_code=404, detail="Procesamiento no encontrado.")
 
@@ -421,7 +422,8 @@ def obtener_procesamiento(
     db:      Session = Depends(get_db),
     usuario: Usuario = Depends(requiere_operador),
 ):
-    return _get_procesamiento_del_usuario(procesamiento_id, usuario, db)
+    # incluir_inactivos=True: permite ver el procesamiento aunque esté cancelado
+    return _get_procesamiento_del_usuario(procesamiento_id, usuario, db, incluir_inactivos=True)
 
 
 @router.get("/{procesamiento_id}/estado", response_model=ProcesamientoResponse)
@@ -430,7 +432,7 @@ def consultar_estado(
     db:      Session = Depends(get_db),
     usuario: Usuario = Depends(requiere_operador),
 ):
-    return _get_procesamiento_del_usuario(procesamiento_id, usuario, db)
+    return _get_procesamiento_del_usuario(procesamiento_id, usuario, db, incluir_inactivos=True)
 
 
 @router.get(

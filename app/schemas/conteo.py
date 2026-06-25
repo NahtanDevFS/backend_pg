@@ -1,6 +1,6 @@
-from pydantic import BaseModel, ConfigDict, Field, computed_field
+from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 from datetime import datetime, date
-from typing import Optional, List
+from typing import Optional, List, Any
 from app.core.confiabilidad import derivar_nivel
 
 
@@ -21,6 +21,8 @@ class ConteoResponse(BaseModel):
     id: int
     campo_cultivo_id: int
     variedad_id: int
+    # nombre desnormalizado de la variedad, resuelto desde la relación ORM
+    variedad_nombre: Optional[str] = None
     estado_id: int
     fecha_conteo: date
     total_surcos: int
@@ -33,6 +35,18 @@ class ConteoResponse(BaseModel):
     created_by: int
 
     model_config = ConfigDict(from_attributes=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _extraer_variedad_nombre(cls, data: Any) -> Any:
+        #Inyecta variedad_nombre leyendo la relación ORM 'variedad'
+        variedad = getattr(data, "variedad", None)
+        if variedad is not None:
+            try:
+                object.__setattr__(data, "variedad_nombre", variedad.nombre)
+            except Exception:
+                pass
+        return data
 
     @computed_field
     @property
