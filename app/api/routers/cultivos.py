@@ -141,11 +141,62 @@ def desactivar_cultivo(
     db: Session = Depends(get_db),
     admin: Usuario = Depends(requiere_admin)
 ):
+    #Archiva (soft-delete) un campo de cultivo y, en cascada, toda su información asociada: operadores asignados, conteos, y de cada conteo sus procesamientos y clasificaciones por calibre. Solo se tocan los registros que estaban activos, los que ya estaban inactivos (p.ej. un procesamiento cancelado) se respetan. Cada registro apagado por la cascada se marca con desactivado_por_campo_cultivo=True para poder reactivarlo de forma determinista si se reactiva el campo.
+    from app.models.models import (
+        CampoCultivoOperador, Conteo, ProcesamientoVideo, ClasificacionCalibreConteo
+    )
+
     cultivo = _get_cultivo_activo(campo_cultivo_id, db)
+
+    #Operadores asignados activos
+    db.query(CampoCultivoOperador).filter(
+        CampoCultivoOperador.campo_cultivo_id == campo_cultivo_id,
+        CampoCultivoOperador.activo == True,
+    ).update(
+        {"activo": False, "desactivado_por_campo_cultivo": True, "updated_by": admin.id},
+        synchronize_session=False,
+    )
+
+    #Conteos activos del campo
+    conteos = db.query(Conteo).filter(
+        Conteo.campo_cultivo_id == campo_cultivo_id,
+        Conteo.activo == True,
+    ).all()
+    conteo_ids = [c.id for c in conteos]
+
+    if conteo_ids:
+        #Procesamientos activos de esos conteos
+        db.query(ProcesamientoVideo).filter(
+            ProcesamientoVideo.conteo_id.in_(conteo_ids),
+            ProcesamientoVideo.activo == True,
+        ).update(
+            {"activo": False, "desactivado_por_campo_cultivo": True, "updated_by": admin.id},
+            synchronize_session=False,
+        )
+
+        #Clasificaciones por calibre activas de esos conteos
+        db.query(ClasificacionCalibreConteo).filter(
+            ClasificacionCalibreConteo.conteo_id.in_(conteo_ids),
+            ClasificacionCalibreConteo.activo == True,
+        ).update(
+            {"activo": False, "desactivado_por_campo_cultivo": True, "updated_by": admin.id},
+            synchronize_session=False,
+        )
+
+        #los conteos mismos
+        db.query(Conteo).filter(
+            Conteo.id.in_(conteo_ids),
+        ).update(
+            {"activo": False, "desactivado_por_campo_cultivo": True, "updated_by": admin.id},
+            synchronize_session=False,
+        )
+
+    #finalmente el campo de cultivo
     cultivo.activo = False
     cultivo.updated_by = admin.id
+
     db.commit()
-    return {"mensaje": "Campo de cultivo desactivado correctamente."}
+    return {"mensaje": "Campo de cultivo y su información asociada desactivados correctamente."}
 
 
 #Gestión de operadores asignados (admin)
