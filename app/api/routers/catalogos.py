@@ -2,8 +2,8 @@ from typing import List
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from app.core.database import get_db
-from app.models.models import VariedadMelon, CalibreMelon, VariedadMelonCalibre, EstadoConteo, Rol, Usuario
-from app.schemas.catalogo import VariedadResponse, CalibreResponse, EstadoConteoResponse, RolResponse
+from app.models.models import VariedadMelon, CalibreMelon, VariedadMelonCalibre, EstadoConteo, Rol, Usuario, Departamento, Municipio
+from app.schemas.catalogo import VariedadResponse, CalibreResponse, EstadoConteoResponse, RolResponse, DepartamentoResponse, MunicipioResponse
 from app.api.deps import obtener_usuario_actual
 
 router = APIRouter(prefix="/catalogos", tags=["Catálogos"])
@@ -36,3 +36,23 @@ def listar_estados_conteo(db: Session = Depends(get_db), _: Usuario = Depends(ob
 @router.get("/roles", response_model=List[RolResponse])
 def listar_roles(db: Session = Depends(get_db), _: Usuario = Depends(obtener_usuario_actual)):
     return db.query(Rol).filter(Rol.activo == True).all()
+
+@router.get("/departamentos", response_model=List[DepartamentoResponse])
+def listar_departamentos(db: Session = Depends(get_db), _: Usuario = Depends(obtener_usuario_actual)):
+    #Lista todos los departamentos activos, ordenados alfabéticamente
+    return db.query(Departamento).filter(
+        Departamento.activo == True
+    ).order_by(Departamento.nombre).all()
+
+
+@router.get("/departamentos/{departamento_id}/municipios", response_model=List[MunicipioResponse])
+def listar_municipios_por_departamento(
+    departamento_id: int,
+    db: Session = Depends(get_db),
+    _: Usuario = Depends(obtener_usuario_actual)
+):
+    #Lista los municipios de un departamento, ordenados alfabéticamente (para el selector en cascada)
+    return db.query(Municipio).filter(
+        Municipio.departamento_id == departamento_id,
+        Municipio.activo == True
+    ).order_by(Municipio.nombre).all()

@@ -32,3 +32,15 @@ class EstadoProcesamientoResponse(BaseModel):
     id: int
     nombre: str
     model_config = ConfigDict(from_attributes=True)
+
+class DepartamentoResponse(BaseModel):
+    id: int
+    nombre: str
+    model_config = ConfigDict(from_attributes=True)
+
+
+class MunicipioResponse(BaseModel):
+    id: int
+    nombre: str
+    departamento_id: int
+    model_config = ConfigDict(from_attributes=True)

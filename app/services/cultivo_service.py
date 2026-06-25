@@ -2,7 +2,7 @@ from sqlalchemy.orm import Session
 from app.models.models import CampoCultivo, CampoCultivoOperador
 from app.schemas import cultivo as schemas
 
-CAMPOS_CULTIVO = {"nombre", "ubicacion", "hectareas", "total_surcos", "activo"}
+CAMPOS_CULTIVO = {"nombre", "municipio_id", "ubicacion", "hectareas", "total_surcos", "activo"}
 
 
 def crear_cultivo(

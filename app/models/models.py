@@ -119,6 +119,35 @@ class Usuario(Base):
     # cultivos_asignados: campos de cultivo a los que tiene acceso como operador
     cultivos_asignados: Mapped[List["CampoCultivoOperador"]] = relationship(back_populates="operador", foreign_keys="[CampoCultivoOperador.usuario_id]")
 
+class Departamento(Base):
+    __tablename__ = "departamento"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    nombre: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
+    activo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("usuario.id"), nullable=True)
+    updated_by: Mapped[Optional[int]] = mapped_column(ForeignKey("usuario.id"), nullable=True)
+
+    municipios: Mapped[List["Municipio"]] = relationship(back_populates="departamento", foreign_keys="[Municipio.departamento_id]")
+
+
+class Municipio(Base):
+    __tablename__ = "municipio"
+    __table_args__ = (UniqueConstraint("nombre", "departamento_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    nombre: Mapped[str] = mapped_column(String(100), nullable=False)
+    departamento_id: Mapped[int] = mapped_column(ForeignKey("departamento.id"), nullable=False)
+    activo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("usuario.id"), nullable=True)
+    updated_by: Mapped[Optional[int]] = mapped_column(ForeignKey("usuario.id"), nullable=True)
+
+    departamento: Mapped["Departamento"] = relationship(back_populates="municipios", foreign_keys="[Municipio.departamento_id]")
+    campos: Mapped[List["CampoCultivo"]] = relationship(back_populates="municipio", foreign_keys="[CampoCultivo.municipio_id]")
 
 class CampoCultivo(Base):
     __tablename__ = "campo_cultivo"
@@ -127,6 +156,8 @@ class CampoCultivo(Base):
     # usuario_id: auditoría quién creó el campo de cultivo
     usuario_id: Mapped[int] = mapped_column(ForeignKey("usuario.id", ondelete="CASCADE"), nullable=False)
     nombre: Mapped[str] = mapped_column(String(150), nullable=False)
+    municipio_id: Mapped[int] = mapped_column(ForeignKey("municipio.id"), nullable=False)
+    # ubicacion: dirección/referencia libre dentro del municipio (sector, parcela, km). Opcional.
     ubicacion: Mapped[Optional[str]] = mapped_column(String(255))
     hectareas: Mapped[Optional[float]] = mapped_column(Numeric(8, 2))
     total_surcos: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -137,6 +168,7 @@ class CampoCultivo(Base):
     updated_by: Mapped[Optional[int]] = mapped_column(ForeignKey("usuario.id"), nullable=True)
 
     creador: Mapped["Usuario"] = relationship(back_populates="cultivos_creados", foreign_keys="[CampoCultivo.usuario_id]")
+    municipio: Mapped["Municipio"] = relationship(back_populates="campos", foreign_keys="[CampoCultivo.municipio_id]")
     operadores: Mapped[List["CampoCultivoOperador"]] = relationship(back_populates="cultivo", foreign_keys="[CampoCultivoOperador.campo_cultivo_id]", cascade="all, delete-orphan")
     conteos: Mapped[List["Conteo"]] = relationship(back_populates="cultivo", foreign_keys="[Conteo.campo_cultivo_id]", cascade="all, delete-orphan")
 
