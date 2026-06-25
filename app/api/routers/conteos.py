@@ -304,21 +304,53 @@ def guardar_muestreo(
         ClasificacionCalibreConteo.conteo_id == conteo_id
     ).delete()
 
+    total_acumulado = conteo.conteo_total_acumulado
+
+    #Reparto por metodo del residuo mayor (Largest Remainder / Hamilton)
+    # Redondear cada calibre por separado hace que la suma de extrapolados no cuadre con el total (p.ej. 50/20/10/10/10 sobre 48 daba 49). En su lugar:
+    # 1) a cada calibre se le asigna la parte entera (floor) de su cantidad ideal  2) las unidades faltantes para llegar al total se reparten de a una a los calibres con mayor parte decimal (los que más "merecen" la unidad extra) así la suma de cantidades extrapoladas es siempre exactamente el total.
+    calculos = []
     for item in datos.items:
         calibre = db.query(CalibreMelon).filter(CalibreMelon.id == item.calibre_id).first()
         if not calibre:
             raise HTTPException(status_code=404, detail=f"Calibre {item.calibre_id} no encontrado.")
-
+        # Porcentaje real del muestreo (dato medido, se conserva tal cual)
         porcentaje = round(item.cantidad_muestreo / datos.total_muestreo * 100, 2)
-        cantidad_extrapolada = round(porcentaje * conteo.conteo_total_acumulado / 100)
+        # Cantidad ideal con decimales, anclada al total acumulado
+        ideal = item.cantidad_muestreo / datos.total_muestreo * total_acumulado
+        base = int(ideal)  # parte entera (floor, ideal >= 0)
+        residuo = ideal - base  # parte decimal para el desempate
+        calculos.append({
+            "item": item,
+            "porcentaje": porcentaje,
+            "base": base,
+            "residuo": residuo,
+        })
 
+    # Unidades que faltan para llegar al total tras truncar hacia abajo
+    suma_base = sum(c["base"] for c in calculos)
+    faltantes = total_acumulado - suma_base
+
+    # Repartir las faltantes a los mayores residuos (de mayor a menor).
+    # En empate de residuo, se prioriza el de mayor cantidad de muestreo.
+    orden = sorted(
+        calculos,
+        key=lambda c: (c["residuo"], c["item"].cantidad_muestreo),
+        reverse=True,
+    )
+    # faltantes está acotado entre 0 y len(calculos) por construcción (floor),
+    # pero se acota explícitamente por seguridad ante cualquier borde.
+    for i in range(max(0, min(faltantes, len(orden)))):
+        orden[i]["base"] += 1
+
+    for c in calculos:
         db.add(ClasificacionCalibreConteo(
             conteo_id=conteo_id,
-            calibre_id=item.calibre_id,
-            cantidad_muestreo=item.cantidad_muestreo,
+            calibre_id=c["item"].calibre_id,
+            cantidad_muestreo=c["item"].cantidad_muestreo,
             total_muestreo=datos.total_muestreo,
-            porcentaje=porcentaje,
-            cantidad_extrapolada=cantidad_extrapolada,
+            porcentaje=c["porcentaje"],
+            cantidad_extrapolada=c["base"],
             created_by=usuario.id
         ))
 
