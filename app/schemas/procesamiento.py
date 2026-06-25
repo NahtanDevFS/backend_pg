@@ -1,8 +1,7 @@
-from pydantic import BaseModel, ConfigDict, Field, computed_field
+from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Any
 from app.core.confiabilidad import derivar_nivel
-
 
 class AjusteResultadoRequest(BaseModel):
     conteo_ajustado: int = Field(..., ge=0)
@@ -34,6 +33,9 @@ class ProcesamientoResponse(BaseModel):
     conteo_id: int
     usuario_id: int
     estado_id: int
+    # estado_nombre: nombre legible del estado ('pendiente', 'procesando',
+    # 'completado', 'error', 'cancelado'). Se resuelve desde la relación ORM.
+    estado_nombre: Optional[str] = None
     surco_inicio: int
     surco_fin: int
     video_original_url: Optional[str]     = None
@@ -43,3 +45,15 @@ class ProcesamientoResponse(BaseModel):
     resultado: Optional[ResultadoIaResponse] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _extraer_estado_nombre(cls, data: Any) -> Any:
+        #Inyecta estado_nombre leyendo la relación ORM 'estado'. Mantiene el objeto original para que Pydantic siga resolviendo el resto de campos por from_attributes.
+        estado = getattr(data, "estado", None)
+        if estado is not None:
+            try:
+                object.__setattr__(data, "estado_nombre", estado.nombre)
+            except Exception:
+                pass
+        return data

@@ -51,6 +51,38 @@ def _get_procesamiento_cualquiera(procesamiento_id: int, db: Session) -> Procesa
     return proc
 
 
+def _recalcular_conteo(conteo_id: int, db: Session):
+    #Recalcula el acumulado y los agregados de confiabilidad de un conteo a partir de sus procesamientos activos. Se usa al cancelar un procesamiento para que el video excluido deje de contar.
+    conteo = db.query(Conteo).filter(Conteo.id == conteo_id).first()
+    if not conteo:
+        return
+    todos = db.query(ResultadoIa).join(ProcesamientoVideo).filter(
+        ProcesamientoVideo.conteo_id == conteo_id,
+        ProcesamientoVideo.activo == True,
+    ).all()
+    conteo.conteo_total_acumulado = sum(
+        (r.conteo_ajustado if r.conteo_ajustado is not None else r.conteo_ia)
+        for r in todos
+    )
+    con_metricas = [
+        r for r in todos
+        if r.promedio_confianza is not None
+        and r.porcentaje_baja_confianza is not None
+        and r.total_frames_procesados
+        and r.total_frames_procesados > 0
+    ]
+    total_frames = sum(r.total_frames_procesados for r in con_metricas)
+    if total_frames > 0:
+        conteo.promedio_confianza_sesion = round(
+            sum(float(r.promedio_confianza) * r.total_frames_procesados for r in con_metricas) / total_frames, 4
+        )
+        conteo.porcentaje_baja_confianza_sesion = round(
+            sum(float(r.porcentaje_baja_confianza) * r.total_frames_procesados for r in con_metricas) / total_frames, 4
+        )
+    else:
+        conteo.promedio_confianza_sesion = None
+        conteo.porcentaje_baja_confianza_sesion = None
+
 #Operador (rutas con segmentos literales)
 
 @router.post("/{procesamiento_id}/resultado-ia")
@@ -354,6 +386,33 @@ def listar_por_conteo_admin(
     ).order_by(ProcesamientoVideo.created_at.desc()).all()
 
 
+@router.patch("/admin/{procesamiento_id}/cancelar")
+def cancelar_procesamiento_admin(
+    procesamiento_id: int,
+    db: Session = Depends(get_db),
+    admin: Usuario = Depends(requiere_admin),
+):
+    #Cancela/anula cualquier procesamiento (soft delete), sin restricción de estado. Pensado para corregir equivocaciones, incluso sobre procesamientos ya 'completado'. Lo marca como 'cancelado' + activo=False y recalcula el conteo.
+    proc = _get_procesamiento_cualquiera(procesamiento_id, db)
+
+    estado_cancelado = db.query(EstadoProcesamiento).filter(
+        EstadoProcesamiento.nombre == "cancelado"
+    ).first()
+    if not estado_cancelado:
+        raise HTTPException(status_code=500, detail="Estado 'cancelado' no configurado.")
+
+    proc.estado_id = estado_cancelado.id
+    proc.activo = False
+    proc.updated_by = admin.id
+
+    progreso.limpiar_progreso(procesamiento_id)
+
+    _recalcular_conteo(proc.conteo_id, db)
+    db.commit()
+
+    return {"detail": "Procesamiento anulado correctamente."}
+
+
 #Operador (rutas dinámicas /{procesamiento_id}) Deben ir despues de todas las rutas con segmentos literales
 
 @router.get("/{procesamiento_id}", response_model=ProcesamientoResponse)
@@ -438,6 +497,43 @@ async def subir_video(
     )
     return proc
 
+
+@router.patch("/{procesamiento_id}/cancelar")
+def cancelar_procesamiento(
+    procesamiento_id: int,
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(requiere_operador),
+):
+    #Cancela un procesamiento propio (soft delete). Solo permitido si está en 'pendiente' o 'procesando'. Lo marca como 'cancelado' + activo=False, liberando su rango de surcos y excluyéndolo del acumulado.
+    proc = _get_procesamiento_del_usuario(procesamiento_id, usuario, db)
+
+    estado_actual = db.query(EstadoProcesamiento).filter(
+        EstadoProcesamiento.id == proc.estado_id
+    ).first()
+    if estado_actual.nombre not in ("pendiente", "procesando"):
+        raise HTTPException(
+            status_code=400,
+            detail="Solo se pueden cancelar procesamientos en curso (pendiente o procesando).",
+        )
+
+    estado_cancelado = db.query(EstadoProcesamiento).filter(
+        EstadoProcesamiento.nombre == "cancelado"
+    ).first()
+    if not estado_cancelado:
+        raise HTTPException(status_code=500, detail="Estado 'cancelado' no configurado.")
+
+    proc.estado_id = estado_cancelado.id
+    proc.activo = False
+    proc.updated_by = usuario.id
+
+    # Limpiar progreso efímero si lo hubiera
+    progreso.limpiar_progreso(procesamiento_id)
+
+    # Recalcular el conteo (el video cancelado ya no cuenta por activo=False)
+    _recalcular_conteo(proc.conteo_id, db)
+    db.commit()
+
+    return {"detail": "Procesamiento cancelado correctamente."}
 
 @router.post("/{procesamiento_id}/ajustar")
 def ajustar_conteo(
