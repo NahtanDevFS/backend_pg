@@ -413,6 +413,48 @@ def cancelar_procesamiento_admin(
 
     return {"detail": "Procesamiento anulado correctamente."}
 
+@router.get("/admin/{procesamiento_id}", response_model=ProcesamientoResponse)
+def obtener_procesamiento_admin(
+    procesamiento_id: int,
+    db: Session = Depends(get_db),
+    _: Usuario = Depends(requiere_admin),
+):
+    #Versión admin de obtener_procesamiento: sin restricción de operador asignado.
+    #La web administrativa la usa para ver el detalle de cualquier procesamiento.
+    #incluir_inactivos via _get_procesamiento_cualquiera (muestra cancelados).
+    return _get_procesamiento_cualquiera(procesamiento_id, db)
+
+
+@router.get(
+    "/admin/{procesamiento_id}/video-anotado",
+    summary="Descargar video etiquetado en 720p (admin)",
+)
+def descargar_video_anotado_admin(
+    procesamiento_id: int,
+    db: Session = Depends(get_db),
+    _: Usuario = Depends(requiere_admin),
+):
+    #Versión admin de la descarga del video anotado, sin requerir asignación
+    #como operador. Usada por la web administrativa.
+    proc = _get_procesamiento_cualquiera(procesamiento_id, db)
+
+    if not proc.video_anotado_url:
+        raise HTTPException(
+            status_code=404,
+            detail="El video anotado aún no está disponible. El procesamiento puede estar en curso.",
+        )
+
+    ruta = video_service.obtener_ruta_fisica(proc.video_anotado_url)
+    if not os.path.exists(ruta):
+        raise HTTPException(
+            status_code=404,
+            detail="El archivo de video no se encontró en el servidor.",
+        )
+
+    nombre_descarga = (
+        f"conteo_{proc.conteo_id}_surcos_{proc.surco_inicio}-{proc.surco_fin}_anotado.mp4"
+    )
+    return FileResponse(path=ruta, media_type="video/mp4", filename=nombre_descarga)
 
 #Operador (rutas dinámicas /{procesamiento_id}) Deben ir despues de todas las rutas con segmentos literales
 
