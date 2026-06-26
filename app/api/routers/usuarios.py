@@ -6,7 +6,7 @@ from app.schemas import usuario as schemas
 from app.services import usuario_service
 from app.api.deps import obtener_usuario_actual, requiere_admin
 from app.models.models import Usuario
-from app.core.security import get_password_hash
+from app.core.security import get_password_hash, verify_password, validar_password
 
 router = APIRouter(prefix="/usuarios", tags=["Usuarios"])
 
@@ -37,6 +37,28 @@ def listar_usuarios(
 def leer_usuario_actual(usuario_actual: Usuario = Depends(obtener_usuario_actual)):
     return usuario_actual
 
+@router.patch("/me/password", summary="Cambiar la propia contraseña")
+def cambiar_password_propia(
+    datos: schemas.CambiarPasswordPropiaRequest,
+    db: Session = Depends(get_db),
+    usuario_actual: Usuario = Depends(obtener_usuario_actual),
+):
+    #Cualquier usuario autenticado cambia su propia contraseña. Debe acreditar
+    #la contraseña actual. Al hacerlo, se limpia el aviso debe_cambiar_password
+    #porque la contraseña ahora la estableció el propio dueño.
+    if not verify_password(datos.password_actual, usuario_actual.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La contraseña actual no es correcta.",
+        )
+
+    validar_password(datos.password_nueva)
+
+    usuario_actual.password_hash = get_password_hash(datos.password_nueva)
+    usuario_actual.debe_cambiar_password = False
+    usuario_actual.updated_by = usuario_actual.id
+    db.commit()
+    return {"mensaje": "Contraseña actualizada correctamente."}
 
 @router.patch(
     "/{usuario_id}",
@@ -67,7 +89,10 @@ def editar_usuario(
         usuario.rol_id = datos.rol_id
 
     if datos.password is not None:
+        validar_password(datos.password)
         usuario.password_hash = get_password_hash(datos.password)
+        # Si el admin se edita a sí mismo, es el dueño -> no debe forzar cambio, si edita a otro, esa contraseña la puso el admin -> avisar al usuario.
+        usuario.debe_cambiar_password = (admin.id != usuario.id)
 
     usuario.updated_by = admin.id
     db.commit()

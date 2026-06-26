@@ -1,7 +1,20 @@
 import bcrypt
 import jwt
 from datetime import datetime, timedelta, timezone
+from fastapi import HTTPException, status
 from app.core.config import settings
+
+LONGITUD_MINIMA_PASSWORD = 6
+
+def validar_password(password: str) -> None:
+    #Valida la fortaleza mínima de una contraseña. Se usa en todos los puntos
+    #donde se establece una contraseña (crear, editar, cambiar la propia) para
+    #que la regla sea consistente. Lanza HTTP 400 si no cumple.
+    if password is None or len(password) < LONGITUD_MINIMA_PASSWORD:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"La contraseña debe tener al menos {LONGITUD_MINIMA_PASSWORD} caracteres.",
+        )
 
 def get_password_hash(password: str) -> str:
     pwd_bytes = password.encode('utf-8')

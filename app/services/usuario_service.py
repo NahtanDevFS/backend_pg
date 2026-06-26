@@ -2,7 +2,7 @@ from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 from app.models.models import Usuario
 from app.schemas import usuario as schemas
-from app.core.security import get_password_hash
+from app.core.security import get_password_hash, validar_password
 
 
 def crear_usuario(db: Session, usuario_in: schemas.UsuarioCreate, creado_por: int) -> Usuario:
@@ -13,10 +13,13 @@ def crear_usuario(db: Session, usuario_in: schemas.UsuarioCreate, creado_por: in
             detail="Ya existe un usuario con ese nombre."
         )
 
+    validar_password(usuario_in.password)
+
     nuevo = Usuario(
         rol_id=usuario_in.rol_id,
         nombre=usuario_in.nombre,
         password_hash=get_password_hash(usuario_in.password),
+        debe_cambiar_password=True,  # contraseña puesta por el admin
         created_by=creado_por
     )
     db.add(nuevo)
