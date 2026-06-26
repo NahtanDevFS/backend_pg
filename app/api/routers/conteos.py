@@ -117,10 +117,10 @@ def listar_conteos_por_cultivo(
     cultivo_id:  int,
     fecha_desde: Optional[date] = None,
     fecha_hasta: Optional[date] = None,
-    estado:      Optional[str]  = None,
-    skip:        int = 0,
-    limit:       int = 20,
-    db:      Session = Depends(get_db),
+    estado: Optional[str]  = None,
+    skip: int = 0,
+    limit: int = 20,
+    db: Session = Depends(get_db),
     usuario: Usuario = Depends(requiere_operador)
 ):
     cultivo = db.query(CampoCultivo).filter(
@@ -151,7 +151,7 @@ def listar_conteos_por_cultivo(
         if est:
             query = query.filter(Conteo.estado_id == est.id)
 
-    return query.order_by(Conteo.fecha_conteo.desc()).offset(skip).limit(limit).all()
+    return query.order_by(Conteo.fecha_conteo.desc(), Conteo.id.desc()).offset(skip).limit(limit).all()
 
 
 #estas rutas deben ir ANTES de /{conteo_id} para que FastAPI no interprete "admin" como un parámetro entero conteo_id
@@ -162,12 +162,12 @@ def listar_conteos_por_cultivo(
     summary="Historial global de conteos paginado (solo Administrador)"
 )
 def historial_global(
-    cultivo_id:    Optional[int]  = None,
-    usuario_id:    Optional[int]  = None,
-    fecha_desde:   Optional[date] = None,
-    fecha_hasta:   Optional[date] = None,
-    skip:          int            = 0,
-    limit:         int            = 20,
+    cultivo_id: Optional[int]  = None,
+    usuario_id: Optional[int]  = None,
+    fecha_desde: Optional[date] = None,
+    fecha_hasta: Optional[date] = None,
+    skip: int = 0,
+    limit: int = 20,
     db: Session = Depends(get_db),
     _: Usuario  = Depends(requiere_admin)
 ):
@@ -190,7 +190,7 @@ def historial_global(
 
     total = query.count()
     items = (
-        query.order_by(Conteo.fecha_conteo.desc())
+        query.order_by(Conteo.fecha_conteo.desc(), Conteo.id.desc())
         .offset(skip)
         .limit(limit)
         .all()
@@ -303,13 +303,20 @@ def comparar_con_anterior(
     if not estado_completado:
         return ComparacionAnteriorResponse(hay_historial=False)
 
+    # anterior = db.query(Conteo).filter(
+    #     Conteo.campo_cultivo_id == conteo_actual.campo_cultivo_id,
+    #     Conteo.id != conteo_id,
+    #     Conteo.estado_id == estado_completado.id,
+    #     Conteo.activo == True,
+    #     Conteo.fecha_conteo < conteo_actual.fecha_conteo
+    # ).order_by(Conteo.fecha_conteo.desc()).first()
+
     anterior = db.query(Conteo).filter(
         Conteo.campo_cultivo_id == conteo_actual.campo_cultivo_id,
-        Conteo.id != conteo_id,
+        Conteo.id < conteo_id,  # anterior = creado antes, mismo día o no
         Conteo.estado_id == estado_completado.id,
         Conteo.activo == True,
-        Conteo.fecha_conteo < conteo_actual.fecha_conteo
-    ).order_by(Conteo.fecha_conteo.desc()).first()
+    ).order_by(Conteo.id.desc()).first()
 
     if not anterior or anterior.conteo_total_acumulado == 0:
         return ComparacionAnteriorResponse(hay_historial=False)
