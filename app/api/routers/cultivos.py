@@ -105,15 +105,19 @@ def crear_cultivo(
 @router.get("/admin/todos", response_model=List[schemas.CampoCultivoResponse])
 def listar_todos_los_cultivos(
     usuario_id: Optional[int] = None,
+    incluir_inactivos: bool = False,
     db: Session = Depends(get_db),
     _: Usuario = Depends(requiere_admin)
 ):
-    #Lista todos los campos de cultivo activos. Filtra por ?usuario_id= para ver los asignados a un operador
+    #Lista campos de cultivo. Por defecto solo activos; con ?incluir_inactivos=true devuelve también los desactivados.
+    #Filtra por ?usuario_id= para ver los asignados a un operador (solo activos).
     if usuario_id:
         cultivos = cultivo_service.obtener_cultivos_del_operador(db=db, usuario_id=usuario_id)
     else:
-        cultivos = db.query(CampoCultivo).filter(CampoCultivo.activo == True).order_by(
-            CampoCultivo.created_at.desc()).all()
+        query = db.query(CampoCultivo)
+        if not incluir_inactivos:
+            query = query.filter(CampoCultivo.activo == True)
+        cultivos = query.order_by(CampoCultivo.created_at.desc()).all()
     return [_to_response(c) for c in cultivos]
 
 
@@ -197,6 +201,75 @@ def desactivar_cultivo(
 
     db.commit()
     return {"mensaje": "Campo de cultivo y su información asociada desactivados correctamente."}
+
+
+@router.patch("/{campo_cultivo_id}/reactivar")
+def reactivar_cultivo(
+    campo_cultivo_id: int,
+    db: Session = Depends(get_db),
+    admin: Usuario = Depends(requiere_admin)
+):
+    #Reactiva un campo de cultivo previamente desactivado y, en cascada, toda la información
+    #que fue desactivada junto con él (marcada con desactivado_por_campo_cultivo=True).
+    #Los registros que ya estaban inactivos antes de la desactivación del campo NO se reactivan.
+    from app.models.models import (
+        CampoCultivoOperador, Conteo, ProcesamientoVideo, ClasificacionCalibreConteo
+    )
+
+    cultivo = db.query(CampoCultivo).filter(
+        CampoCultivo.id == campo_cultivo_id,
+        CampoCultivo.activo == False,
+    ).first()
+    if not cultivo:
+        raise HTTPException(
+            status_code=404,
+            detail="Campo de cultivo no encontrado o ya está activo."
+        )
+
+    #Reactivar solo los registros que fueron apagados por la cascada del campo
+    db.query(CampoCultivoOperador).filter(
+        CampoCultivoOperador.campo_cultivo_id == campo_cultivo_id,
+        CampoCultivoOperador.desactivado_por_campo_cultivo == True,
+    ).update(
+        {"activo": True, "desactivado_por_campo_cultivo": False, "updated_by": admin.id},
+        synchronize_session=False,
+    )
+
+    conteos = db.query(Conteo).filter(
+        Conteo.campo_cultivo_id == campo_cultivo_id,
+        Conteo.desactivado_por_campo_cultivo == True,
+    ).all()
+    conteo_ids = [c.id for c in conteos]
+
+    if conteo_ids:
+        db.query(ProcesamientoVideo).filter(
+            ProcesamientoVideo.conteo_id.in_(conteo_ids),
+            ProcesamientoVideo.desactivado_por_campo_cultivo == True,
+        ).update(
+            {"activo": True, "desactivado_por_campo_cultivo": False, "updated_by": admin.id},
+            synchronize_session=False,
+        )
+
+        db.query(ClasificacionCalibreConteo).filter(
+            ClasificacionCalibreConteo.conteo_id.in_(conteo_ids),
+            ClasificacionCalibreConteo.desactivado_por_campo_cultivo == True,
+        ).update(
+            {"activo": True, "desactivado_por_campo_cultivo": False, "updated_by": admin.id},
+            synchronize_session=False,
+        )
+
+        db.query(Conteo).filter(
+            Conteo.id.in_(conteo_ids),
+        ).update(
+            {"activo": True, "desactivado_por_campo_cultivo": False, "updated_by": admin.id},
+            synchronize_session=False,
+        )
+
+    cultivo.activo = True
+    cultivo.updated_by = admin.id
+
+    db.commit()
+    return {"mensaje": "Campo de cultivo y su información asociada reactivados correctamente."}
 
 
 #Gestión de operadores asignados (admin)
