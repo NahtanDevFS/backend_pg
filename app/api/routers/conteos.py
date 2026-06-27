@@ -33,12 +33,13 @@ def _get_conteo_del_usuario(conteo_id: int, usuario: Usuario, db: Session) -> Co
     return conteo
 
 
-def _get_conteo_cualquiera(conteo_id: int, db: Session) -> Conteo:
-    """Devuelve cualquier conteo activo sin restricción de dueño (uso admin)."""
-    conteo = db.query(Conteo).filter(
-        Conteo.id == conteo_id,
-        Conteo.activo == True
-    ).first()
+def _get_conteo_cualquiera(conteo_id: int, db: Session, incluir_inactivos: bool = False) -> Conteo:
+    """Devuelve cualquier conteo sin restricción de dueño (uso admin).
+    Por defecto solo activos; incluir_inactivos=True permite leer conteos desactivados."""
+    q = db.query(Conteo).filter(Conteo.id == conteo_id)
+    if not incluir_inactivos:
+        q = q.filter(Conteo.activo == True)
+    conteo = q.first()
     if not conteo:
         raise HTTPException(status_code=404, detail="Conteo no encontrado.")
     return conteo
@@ -166,18 +167,18 @@ def historial_global(
     usuario_id: Optional[int]  = None,
     fecha_desde: Optional[date] = None,
     fecha_hasta: Optional[date] = None,
+    incluir_inactivos: bool = False,
     skip: int = 0,
     limit: int = 20,
     db: Session = Depends(get_db),
     _: Usuario  = Depends(requiere_admin)
 ):
-    #Devuelve los conteos activos del sistema, paginados, con filtros opcionales.
-    #?cultivo_id=X solo conteos de ese campo; ?usuario_id=X conteos de campos de
-    #ese operador; ?fecha_desde / ?fecha_hasta rango de fechas. La respuesta
-    #incluye 'items' (la página actual) y 'total' (conteos que cumplen el filtro,
-    #para que el frontend calcule el número de páginas).
+    #Devuelve los conteos del sistema, paginados, con filtros opcionales.
+    #Por defecto solo activos; con ?incluir_inactivos=true devuelve también los desactivados.
 
-    query = db.query(Conteo).filter(Conteo.activo == True)
+    query = db.query(Conteo)
+    if not incluir_inactivos:
+        query = query.filter(Conteo.activo == True)
 
     if cultivo_id:
         query = query.filter(Conteo.campo_cultivo_id == cultivo_id)
@@ -208,7 +209,8 @@ def obtener_conteo_admin(
     db: Session = Depends(get_db),
     _: Usuario = Depends(requiere_admin)
 ):
-    return _get_conteo_cualquiera(conteo_id, db)
+    # incluir_inactivos=True para que el admin pueda ver el detalle de un conteo desactivado
+    return _get_conteo_cualquiera(conteo_id, db, incluir_inactivos=True)
 
 
 @router.get(
@@ -221,8 +223,109 @@ def obtener_muestreo_admin(
     db: Session = Depends(get_db),
     _: Usuario = Depends(requiere_admin)
 ):
-    conteo = _get_conteo_cualquiera(conteo_id, db)
+    conteo = _get_conteo_cualquiera(conteo_id, db, incluir_inactivos=True)
     return _build_muestreo_response(conteo, db)
+
+
+@router.patch("/admin/{conteo_id}/desactivar", response_model=ConteoResponse)
+def desactivar_conteo_admin(
+    conteo_id: int,
+    db: Session = Depends(get_db),
+    admin: Usuario = Depends(requiere_admin),
+):
+    #Soft-delete de un conteo: lo marca como activo=False junto con sus
+    #procesamientos activos, sus clasificaciones y sus clasificaciones de calibre.
+    #Solo se tocan registros que estaban activos; los ya inactivos se respetan.
+    #Cada registro apagado se marca con desactivado_por_campo_cultivo=True
+    #(reutilizamos el flag ya existente) para poder reactivar de forma determinista.
+    from app.models.models import ProcesamientoVideo, ClasificacionCalibreConteo
+
+    conteo = _get_conteo_cualquiera(conteo_id, db)  # solo activos
+
+    # Procesamientos activos del conteo
+    procs = db.query(ProcesamientoVideo).filter(
+        ProcesamientoVideo.conteo_id == conteo_id,
+        ProcesamientoVideo.activo == True,
+    ).all()
+    proc_ids = [p.id for p in procs]
+
+    if proc_ids:
+        db.query(ProcesamientoVideo).filter(
+            ProcesamientoVideo.id.in_(proc_ids),
+        ).update(
+            {"activo": False, "desactivado_por_campo_cultivo": True, "updated_by": admin.id},
+            synchronize_session=False,
+        )
+
+    # Clasificaciones de calibre activas
+    db.query(ClasificacionCalibreConteo).filter(
+        ClasificacionCalibreConteo.conteo_id == conteo_id,
+        ClasificacionCalibreConteo.activo == True,
+    ).update(
+        {"activo": False, "desactivado_por_campo_cultivo": True, "updated_by": admin.id},
+        synchronize_session=False,
+    )
+
+    conteo.activo = False
+    conteo.desactivado_por_campo_cultivo = False  # desactivado directamente, no por cascada
+    conteo.updated_by = admin.id
+    db.commit()
+    db.refresh(conteo)
+    return conteo
+
+
+@router.patch("/admin/{conteo_id}/reactivar", response_model=ConteoResponse)
+def reactivar_conteo_admin(
+    conteo_id: int,
+    db: Session = Depends(get_db),
+    admin: Usuario = Depends(requiere_admin),
+):
+    #Reactiva un conteo previamente desactivado directamente (desactivado_por_campo_cultivo=False).
+    #Restaura en cascada sus procesamientos y clasificaciones que fueron marcados con
+    #desactivado_por_campo_cultivo=True durante la desactivación del conteo.
+    #No reactiva conteos que fueron desactivados por la cascada del campo de cultivo.
+    from app.models.models import ProcesamientoVideo, ClasificacionCalibreConteo
+
+    conteo = db.query(Conteo).filter(
+        Conteo.id == conteo_id,
+        Conteo.activo == False,
+        Conteo.desactivado_por_campo_cultivo == False,  # solo desactivados directamente
+    ).first()
+    if not conteo:
+        raise HTTPException(
+            status_code=404,
+            detail="Conteo no encontrado, ya está activo, o fue desactivado por la cascada del campo de cultivo."
+        )
+
+    # Reactivar procesamientos y sus resultados marcados por esta cascada
+    procs = db.query(ProcesamientoVideo).filter(
+        ProcesamientoVideo.conteo_id == conteo_id,
+        ProcesamientoVideo.desactivado_por_campo_cultivo == True,
+    ).all()
+    proc_ids = [p.id for p in procs]
+
+    if proc_ids:
+        db.query(ProcesamientoVideo).filter(
+            ProcesamientoVideo.id.in_(proc_ids),
+        ).update(
+            {"activo": True, "desactivado_por_campo_cultivo": False, "updated_by": admin.id},
+            synchronize_session=False,
+        )
+
+    # Reactivar clasificaciones de calibre
+    db.query(ClasificacionCalibreConteo).filter(
+        ClasificacionCalibreConteo.conteo_id == conteo_id,
+        ClasificacionCalibreConteo.desactivado_por_campo_cultivo == True,
+    ).update(
+        {"activo": True, "desactivado_por_campo_cultivo": False, "updated_by": admin.id},
+        synchronize_session=False,
+    )
+
+    conteo.activo = True
+    conteo.updated_by = admin.id
+    db.commit()
+    db.refresh(conteo)
+    return conteo
 
 @router.get("/{conteo_id}", response_model=ConteoResponse)
 def obtener_conteo(
