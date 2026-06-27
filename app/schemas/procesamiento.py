@@ -36,6 +36,7 @@ class ProcesamientoResponse(BaseModel):
     # estado_nombre: nombre legible del estado ('pendiente', 'procesando',
     # 'completado', 'error', 'cancelado'). Se resuelve desde la relación ORM.
     estado_nombre: Optional[str] = None
+    activo: bool = True
     surco_inicio: int
     surco_fin: int
     video_original_url: Optional[str]     = None

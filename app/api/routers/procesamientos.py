@@ -378,13 +378,18 @@ def listar_por_conteo(
 @router.get("/admin/conteo/{conteo_id}", response_model=List[ProcesamientoResponse])
 def listar_por_conteo_admin(
     conteo_id: int,
+    incluir_cancelados: bool = False,
     db: Session = Depends(get_db),
     _: Usuario = Depends(requiere_admin),
 ):
-    return db.query(ProcesamientoVideo).filter(
-        ProcesamientoVideo.conteo_id == conteo_id,
-        ProcesamientoVideo.activo == True
-    ).order_by(ProcesamientoVideo.created_at.desc()).all()
+    #Lista los procesamientos de un conteo. Por defecto solo activos (activo=True).
+    #Con ?incluir_cancelados=true devuelve también los cancelados (activo=False).
+    query = db.query(ProcesamientoVideo).filter(
+        ProcesamientoVideo.conteo_id == conteo_id
+    )
+    if not incluir_cancelados:
+        query = query.filter(ProcesamientoVideo.activo == True)
+    return query.order_by(ProcesamientoVideo.created_at.desc()).all()
 
 
 @router.patch("/admin/{procesamiento_id}/cancelar")
@@ -408,10 +413,75 @@ def cancelar_procesamiento_admin(
 
     progreso.limpiar_progreso(procesamiento_id)
 
+    # Flush para que activo=False sea visible para la query de _recalcular_conteo
+    db.flush()
+
     _recalcular_conteo(proc.conteo_id, db)
     db.commit()
 
     return {"detail": "Procesamiento anulado correctamente."}
+
+
+@router.patch("/admin/{procesamiento_id}/reactivar")
+def reactivar_procesamiento_admin(
+    procesamiento_id: int,
+    db: Session = Depends(get_db),
+    admin: Usuario = Depends(requiere_admin),
+):
+    #Reactiva un procesamiento previamente cancelado, marcándolo de nuevo como 'completado' + activo=True.
+    #Solo funciona si el procesamiento tiene resultado de IA (estaba completado antes de cancelarse).
+    #Valida que no haya otro procesamiento activo que solape el mismo rango de surcos en el mismo conteo.
+    proc = db.query(ProcesamientoVideo).filter(
+        ProcesamientoVideo.id == procesamiento_id,
+        ProcesamientoVideo.activo == False,
+    ).first()
+    if not proc:
+        raise HTTPException(
+            status_code=404,
+            detail="Procesamiento no encontrado o ya está activo."
+        )
+
+    if not proc.resultado:
+        raise HTTPException(
+            status_code=400,
+            detail="Este procesamiento no tiene resultado de IA y no puede reactivarse como completado."
+        )
+
+    #Verificar conflicto de surcos: ningún otro procesamiento activo del mismo conteo puede solapar el rango
+    conflicto = db.query(ProcesamientoVideo).filter(
+        ProcesamientoVideo.conteo_id == proc.conteo_id,
+        ProcesamientoVideo.activo == True,
+        ProcesamientoVideo.id != proc.id,
+        ProcesamientoVideo.surco_inicio <= proc.surco_fin,
+        ProcesamientoVideo.surco_fin >= proc.surco_inicio,
+    ).first()
+    if conflicto:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Ya existe un procesamiento activo (surcos {conflicto.surco_inicio}–{conflicto.surco_fin}) "
+                f"que solapa el rango de este procesamiento ({proc.surco_inicio}–{proc.surco_fin}). "
+                "Cancela ese procesamiento primero."
+            )
+        )
+
+    estado_completado = db.query(EstadoProcesamiento).filter(
+        EstadoProcesamiento.nombre == "completado"
+    ).first()
+    if not estado_completado:
+        raise HTTPException(status_code=500, detail="Estado 'completado' no configurado.")
+
+    proc.estado_id = estado_completado.id
+    proc.activo = True
+    proc.updated_by = admin.id
+
+    # Flush para que activo=True sea visible para la query de _recalcular_conteo
+    db.flush()
+
+    _recalcular_conteo(proc.conteo_id, db)
+    db.commit()
+
+    return {"detail": "Procesamiento reactivado correctamente."}
 
 @router.get("/admin/{procesamiento_id}", response_model=ProcesamientoResponse)
 def obtener_procesamiento_admin(
@@ -548,16 +618,17 @@ def cancelar_procesamiento(
     db: Session = Depends(get_db),
     usuario: Usuario = Depends(requiere_operador),
 ):
-    #Cancela un procesamiento propio (soft delete). Solo permitido si está en 'pendiente' o 'procesando'. Lo marca como 'cancelado' + activo=False, liberando su rango de surcos y excluyéndolo del acumulado.
+    #Cancela un procesamiento propio (soft delete). Permitido en estados 'pendiente', 'procesando' y 'completado'.
+    #Marca como 'cancelado' + activo=False, libera el rango de surcos y excluye el video del acumulado del conteo.
     proc = _get_procesamiento_del_usuario(procesamiento_id, usuario, db)
 
     estado_actual = db.query(EstadoProcesamiento).filter(
         EstadoProcesamiento.id == proc.estado_id
     ).first()
-    if estado_actual.nombre not in ("pendiente", "procesando"):
+    if estado_actual.nombre not in ("pendiente", "procesando", "completado"):
         raise HTTPException(
             status_code=400,
-            detail="Solo se pueden cancelar procesamientos en curso (pendiente o procesando).",
+            detail="Solo se pueden cancelar procesamientos en estado pendiente, procesando o completado.",
         )
 
     estado_cancelado = db.query(EstadoProcesamiento).filter(
@@ -572,6 +643,9 @@ def cancelar_procesamiento(
 
     # Limpiar progreso efímero si lo hubiera
     progreso.limpiar_progreso(procesamiento_id)
+
+    # Flush para que activo=False sea visible para la query de _recalcular_conteo
+    db.flush()
 
     # Recalcular el conteo (el video cancelado ya no cuenta por activo=False)
     _recalcular_conteo(proc.conteo_id, db)
