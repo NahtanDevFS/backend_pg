@@ -45,6 +45,61 @@ def _get_conteo_cualquiera(conteo_id: int, db: Session, incluir_inactivos: bool 
     return conteo
 
 
+def _recalcular_clasificaciones(conteo_id: int, db: Session) -> None:
+    """Recalcula las cantidades extrapoladas de cada ClasificacionCalibreConteo
+    usando el total acumulado actual del conteo y el método Hamilton (residuo mayor).
+
+    Solo actúa si ya existen clasificaciones activas para el conteo.
+    Si el total acumulado es 0, deja las extrapoladas en 0 sin borrar los registros.
+    No hace commit — el caller es responsable del commit."""
+    clasificaciones = db.query(ClasificacionCalibreConteo).filter(
+        ClasificacionCalibreConteo.conteo_id == conteo_id,
+        ClasificacionCalibreConteo.activo == True,
+    ).all()
+
+    if not clasificaciones:
+        return  # sin muestreo previo, nada que recalcular
+
+    conteo = db.query(Conteo).filter(Conteo.id == conteo_id).first()
+    if not conteo:
+        return
+
+    total_acumulado = conteo.conteo_total_acumulado
+    total_muestreo = clasificaciones[0].total_muestreo  # invariante: igual para todas
+
+    if total_muestreo == 0:
+        return
+
+    if total_acumulado == 0:
+        for c in clasificaciones:
+            c.cantidad_extrapolada = 0
+        return
+
+    # Método Hamilton: asignar parte entera primero, luego repartir faltantes
+    # por residuo mayor (igual que en guardar_muestreo)
+    calculos = []
+    for c in clasificaciones:
+        ideal = c.cantidad_muestreo / total_muestreo * total_acumulado
+        base = int(ideal)
+        residuo = ideal - base
+        calculos.append({"obj": c, "base": base, "residuo": residuo})
+
+    suma_base = sum(x["base"] for x in calculos)
+    faltantes = total_acumulado - suma_base
+
+    orden = sorted(
+        calculos,
+        key=lambda x: (x["residuo"], x["obj"].cantidad_muestreo),
+        reverse=True,
+    )
+    for i in range(max(0, min(faltantes, len(orden)))):
+        orden[i]["base"] += 1
+
+    for x in calculos:
+        x["obj"].cantidad_extrapolada = x["base"]
+        x["obj"].porcentaje = round(x["obj"].cantidad_muestreo / total_muestreo * 100, 2)
+
+
 def _build_muestreo_response(conteo: Conteo, db: Session) -> MuestreoResponse:
     clasificaciones = db.query(ClasificacionCalibreConteo).join(CalibreMelon).filter(
         ClasificacionCalibreConteo.conteo_id == conteo.id,

@@ -19,6 +19,10 @@ from app.core.firma import validar_token_descarga
 import secrets
 from app.core.config import settings
 from app.core import progreso
+# Import lazy para evitar ciclo: conteos → procesamientos → conteos
+def _recalcular_clasificaciones_conteo(conteo_id: int, db) -> None:
+    from app.api.routers.conteos import _recalcular_clasificaciones
+    _recalcular_clasificaciones(conteo_id, db)
 
 router = APIRouter(prefix="/procesamientos", tags=["Procesamientos"])
 
@@ -85,6 +89,9 @@ def _recalcular_conteo(conteo_id: int, db: Session):
     else:
         conteo.promedio_confianza_sesion = None
         conteo.porcentaje_baja_confianza_sesion = None
+
+    # Recalcular segmentación por calibre si existe muestreo previo
+    _recalcular_clasificaciones_conteo(conteo_id, db)
 
 #Operador (rutas con segmentos literales)
 
@@ -213,6 +220,9 @@ async def recibir_resultado_ia(
     else:
         conteo.promedio_confianza_sesion = None
         conteo.porcentaje_baja_confianza_sesion = None
+
+    # Recalcular segmentación por calibre si existe muestreo previo
+    _recalcular_clasificaciones_conteo(conteo.id, db)
 
     db.commit()
 
@@ -626,9 +636,9 @@ def iniciar_subida_chunks(
     db: Session = Depends(get_db),
     usuario: Usuario = Depends(requiere_operador),
 ):
-    #Registra los metadatos de la subida por chunks (extensión y total de chunks).
-    #Debe llamarse antes de enviar el primer chunk. Idempotente: si se llama de nuevo
-    #con los mismos datos, simplemente sobreescribe la meta (útil para reintentos).
+    """Registra los metadatos de la subida por chunks (extensión y total de chunks).
+    Debe llamarse antes de enviar el primer chunk. Idempotente: si se llama de nuevo
+    con los mismos datos, simplemente sobreescribe la meta (útil para reintentos)."""
     proc = _get_procesamiento_del_usuario(procesamiento_id, usuario, db)
 
     estado_pendiente = db.query(EstadoProcesamiento).filter(
@@ -723,7 +733,7 @@ async def subir_chunk(
             "completo": False,
         }
 
-    #Todos los chunks llegaron, entonces ensamblar
+    # Todos los chunks llegaron → ensamblar
     try:
         nombre_archivo = video_service.ensamblar_y_limpiar(procesamiento_id)
     except ValueError as e:
@@ -755,8 +765,8 @@ def estado_subida_chunks(
     db: Session = Depends(get_db),
     usuario: Usuario = Depends(requiere_operador),
 ):
-    #Devuelve el índice del último chunk recibido y los bytes acumulados
-    #El cliente lo usa para reanudar una subida interrumpida sin repetir chunks ya enviados
+    """Devuelve el índice del último chunk recibido y los bytes acumulados.
+    El cliente lo usa para reanudar una subida interrumpida sin repetir chunks ya enviados."""
     _get_procesamiento_del_usuario(procesamiento_id, usuario, db)
     return {
         "ultimo_chunk_recibido": video_service.ultimo_chunk_recibido(procesamiento_id),
@@ -770,8 +780,8 @@ def cancelar_procesamiento(
     db: Session = Depends(get_db),
     usuario: Usuario = Depends(requiere_operador),
 ):
-    #Cancela un procesamiento propio (soft delete). Permitido en estados 'pendiente', 'procesando' y 'completado'
-    #Marca como 'cancelado' + activo=False, libera el rango de surcos y excluye el video del acumulado del conteo
+    #Cancela un procesamiento propio (soft delete). Permitido en estados 'pendiente', 'procesando' y 'completado'.
+    #Marca como 'cancelado' + activo=False, libera el rango de surcos y excluye el video del acumulado del conteo.
     proc = _get_procesamiento_del_usuario(procesamiento_id, usuario, db)
 
     estado_actual = db.query(EstadoProcesamiento).filter(
@@ -832,6 +842,10 @@ def ajustar_conteo(
         for r in todos
     )
     conteo.updated_by = usuario.id
+
+    # Recalcular segmentación por calibre si existe muestreo previo
+    _recalcular_clasificaciones_conteo(conteo.id, db)
+
     db.commit()
 
     return {"detail": "Ajuste guardado correctamente."}
