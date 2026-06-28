@@ -1,9 +1,11 @@
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, BackgroundTasks, Header, Request
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from datetime import datetime
 import os
+import base64
 from app.core.database import get_db
 from app.core.config import settings
 from app.models.models import (
@@ -612,14 +614,164 @@ async def subir_video(
     return proc
 
 
+class IniciarSubidaChunksRequest(BaseModel):
+    extension: str
+    total_chunks: int
+
+
+@router.post("/{procesamiento_id}/video/iniciar-chunks", response_model=ProcesamientoResponse)
+def iniciar_subida_chunks(
+    procesamiento_id: int,
+    datos: IniciarSubidaChunksRequest,
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(requiere_operador),
+):
+    #Registra los metadatos de la subida por chunks (extensión y total de chunks).
+    #Debe llamarse antes de enviar el primer chunk. Idempotente: si se llama de nuevo
+    #con los mismos datos, simplemente sobreescribe la meta (útil para reintentos).
+    proc = _get_procesamiento_del_usuario(procesamiento_id, usuario, db)
+
+    estado_pendiente = db.query(EstadoProcesamiento).filter(
+        EstadoProcesamiento.nombre == "pendiente"
+    ).first()
+    if not estado_pendiente or proc.estado_id != estado_pendiente.id:
+        raise HTTPException(
+            status_code=400,
+            detail="Este procesamiento no está en estado pendiente."
+        )
+
+    extension = datos.extension.lower().strip(".")
+    if extension not in video_service.EXTENSIONES_PERMITIDAS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Extensión no permitida. Válidas: {', '.join(sorted(video_service.EXTENSIONES_PERMITIDAS))}.",
+        )
+    if datos.total_chunks < 1 or datos.total_chunks > 5000:
+        raise HTTPException(status_code=400, detail="total_chunks debe estar entre 1 y 5000.")
+
+    video_service.guardar_meta_chunks(procesamiento_id, extension, datos.total_chunks)
+    return proc
+
+
+@router.post("/{procesamiento_id}/video/chunk")
+async def subir_chunk(
+    procesamiento_id: int,
+    background_tasks: BackgroundTasks,
+    numero: int = Form(...),
+    data_b64: str = Form(...),
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(requiere_operador),
+):
+    proc = _get_procesamiento_del_usuario(procesamiento_id, usuario, db)
+
+    estado_pendiente = db.query(EstadoProcesamiento).filter(
+        EstadoProcesamiento.nombre == "pendiente"
+    ).first()
+    estado_procesando = db.query(EstadoProcesamiento).filter(
+        EstadoProcesamiento.nombre == "procesando"
+    ).first()
+
+    if proc.estado_id not in (estado_pendiente.id, estado_procesando.id):
+        print(f"[CHUNK {procesamiento_id}] FALLO estado: proc.estado_id={proc.estado_id} no es pendiente({estado_pendiente.id}) ni procesando({estado_procesando.id})")
+        raise HTTPException(
+            status_code=400,
+            detail="Este procesamiento no acepta más chunks (estado no válido)."
+        )
+
+    # Si ya está en procesando con video ensamblado, es un chunk tardío del retry — ignorar
+    if proc.estado_id == estado_procesando.id and proc.video_original_url and proc.video_original_url != "pendiente":
+        print(f"[CHUNK {procesamiento_id}] chunk tardío numero={numero}, video ya ensamblado, respondiendo completo=True")
+        return {"recibido": numero, "ultimo_recibido": -1, "total_chunks": -1, "completo": True}
+
+    meta = video_service.leer_meta_chunks(procesamiento_id)
+    if meta is None:
+        # Si no hay meta pero el video ya está ensamblado (video_original_url != "pendiente"),
+        # el ensamblado ya ocurrió — responder con completo=True para que el cliente pare.
+        if proc.video_original_url and proc.video_original_url != "pendiente":
+            print(f"[CHUNK {procesamiento_id}] meta=None pero video ya ensamblado, respondiendo completo=True")
+            return {"recibido": numero, "ultimo_recibido": -1, "total_chunks": -1, "completo": True}
+        print(f"[CHUNK {procesamiento_id}] FALLO meta=None para chunk numero={numero}")
+        raise HTTPException(
+            status_code=400,
+            detail="Primero llama a /iniciar-chunks para registrar la extensión y total de chunks."
+        )
+    extension, total_chunks = meta
+    print(f"[CHUNK {procesamiento_id}] recibido numero={numero}, total_chunks={total_chunks}, len(data_b64)={len(data_b64)}")
+
+    if numero < 0 or numero >= total_chunks:
+        print(f"[CHUNK {procesamiento_id}] FALLO rango: numero={numero} fuera de 0-{total_chunks-1}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Número de chunk inválido. Esperado 0–{total_chunks - 1}, recibido {numero}."
+        )
+
+    try:
+        data = base64.b64decode(data_b64)
+    except Exception:
+        raise HTTPException(status_code=400, detail="El chunk no es base64 válido.")
+
+    video_service.guardar_chunk(procesamiento_id, numero, data)
+    print(f"[CHUNK {procesamiento_id}] guardado chunk {numero}, bytes_reales={len(data)}")
+
+    ultimo = video_service.ultimo_chunk_recibido(procesamiento_id)
+    print(f"[CHUNK {procesamiento_id}] ultimo_recibido={ultimo}, total_chunks={total_chunks}")
+    if ultimo < total_chunks - 1:
+        return {
+            "recibido": numero,
+            "ultimo_recibido": ultimo,
+            "total_chunks": total_chunks,
+            "completo": False,
+        }
+
+    #Todos los chunks llegaron, entonces ensamblar
+    try:
+        nombre_archivo = video_service.ensamblar_y_limpiar(procesamiento_id)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    proc.video_original_url = nombre_archivo
+    proc.estado_id = estado_procesando.id
+    db.commit()
+    db.refresh(proc)
+
+    background_tasks.add_task(
+        video_service.tarea_procesar_video,
+        proc.id,
+        nombre_archivo,
+        usuario.id,
+    )
+
+    return {
+        "recibido": numero,
+        "ultimo_recibido": ultimo,
+        "total_chunks": total_chunks,
+        "completo": True,
+    }
+
+
+@router.get("/{procesamiento_id}/video/estado-subida")
+def estado_subida_chunks(
+    procesamiento_id: int,
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(requiere_operador),
+):
+    #Devuelve el índice del último chunk recibido y los bytes acumulados
+    #El cliente lo usa para reanudar una subida interrumpida sin repetir chunks ya enviados
+    _get_procesamiento_del_usuario(procesamiento_id, usuario, db)
+    return {
+        "ultimo_chunk_recibido": video_service.ultimo_chunk_recibido(procesamiento_id),
+        "bytes_recibidos": video_service.bytes_recibidos(procesamiento_id),
+    }
+
+
 @router.patch("/{procesamiento_id}/cancelar")
 def cancelar_procesamiento(
     procesamiento_id: int,
     db: Session = Depends(get_db),
     usuario: Usuario = Depends(requiere_operador),
 ):
-    #Cancela un procesamiento propio (soft delete). Permitido en estados 'pendiente', 'procesando' y 'completado'.
-    #Marca como 'cancelado' + activo=False, libera el rango de surcos y excluye el video del acumulado del conteo.
+    #Cancela un procesamiento propio (soft delete). Permitido en estados 'pendiente', 'procesando' y 'completado'
+    #Marca como 'cancelado' + activo=False, libera el rango de surcos y excluye el video del acumulado del conteo
     proc = _get_procesamiento_del_usuario(procesamiento_id, usuario, db)
 
     estado_actual = db.query(EstadoProcesamiento).filter(
