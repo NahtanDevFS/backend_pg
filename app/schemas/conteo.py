@@ -20,12 +20,11 @@ class ConteoUpdate(BaseModel):
 class ConteoResponse(BaseModel):
     id: int
     campo_cultivo_id: int
-    # nombre desnormalizado del campo de cultivo, resuelto desde la relación ORM
     cultivo_nombre: Optional[str] = None
     variedad_id: int
-    # nombre desnormalizado de la variedad, resuelto desde la relación ORM
     variedad_nombre: Optional[str] = None
     estado_id: int
+    estado_nombre: Optional[str] = None
     fecha_conteo: date
     total_surcos: int
     conteo_total_acumulado: int
@@ -60,6 +59,12 @@ class ConteoResponse(BaseModel):
         if creador is not None:
             try:
                 object.__setattr__(data, "operador_nombre", creador.nombre)
+            except Exception:
+                pass
+        estado = getattr(data, "estado", None)
+        if estado is not None:
+            try:
+                object.__setattr__(data, "estado_nombre", estado.nombre)
             except Exception:
                 pass
         return data
