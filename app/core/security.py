@@ -5,6 +5,7 @@ from fastapi import HTTPException, status
 from app.core.config import settings
 
 LONGITUD_MINIMA_PASSWORD = 6
+LONGITUD_MAXIMA_PASSWORD = 24
 
 def validar_password(password: str) -> None:
     #Valida la fortaleza mínima de una contraseña. Se usa en todos los puntos
@@ -14,6 +15,11 @@ def validar_password(password: str) -> None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"La contraseña debe tener al menos {LONGITUD_MINIMA_PASSWORD} caracteres.",
+        )
+    if len(password) > LONGITUD_MAXIMA_PASSWORD:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"La contraseña no puede tener más de {LONGITUD_MAXIMA_PASSWORD} caracteres.",
         )
 
 def get_password_hash(password: str) -> str:

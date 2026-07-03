@@ -461,14 +461,6 @@ def comparar_con_anterior(
     if not estado_completado:
         return ComparacionAnteriorResponse(hay_historial=False)
 
-    # anterior = db.query(Conteo).filter(
-    #     Conteo.campo_cultivo_id == conteo_actual.campo_cultivo_id,
-    #     Conteo.id != conteo_id,
-    #     Conteo.estado_id == estado_completado.id,
-    #     Conteo.activo == True,
-    #     Conteo.fecha_conteo < conteo_actual.fecha_conteo
-    # ).order_by(Conteo.fecha_conteo.desc()).first()
-
     anterior = db.query(Conteo).filter(
         Conteo.campo_cultivo_id == conteo_actual.campo_cultivo_id,
         Conteo.id < conteo_id,  # anterior = creado antes, mismo día o no

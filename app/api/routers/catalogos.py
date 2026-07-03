@@ -86,7 +86,30 @@ def listar_calibres_admin(
 ):
     #Lista todos los calibres (activos e inactivos) ordenados por 'orden'.
     calibres = db.query(CalibreMelon).order_by(CalibreMelon.orden, CalibreMelon.nombre).all()
-    return [_calibre_a_admin_response(c, db) for c in calibres]
+
+    # Una sola query con GROUP BY para los conteos de todos los calibres a
+    # la vez, en vez de una query de count() por cada calibre (N+1). El
+    # resultado se vuelca a un dict para armar cada response en memoria.
+    conteos_por_calibre = dict(
+        db.query(
+            ClasificacionCalibreConteo.calibre_id,
+            func.count(ClasificacionCalibreConteo.id),
+        )
+        .group_by(ClasificacionCalibreConteo.calibre_id)
+        .all()
+    )
+
+    return [
+        {
+            "id": c.id,
+            "nombre": c.nombre,
+            "descripcion": c.descripcion,
+            "orden": c.orden,
+            "activo": c.activo,
+            "conteos_asociados": conteos_por_calibre.get(c.id, 0),
+        }
+        for c in calibres
+    ]
 
 
 @router.post("/admin/calibres", response_model=CalibreAdminResponse, status_code=201)
@@ -200,7 +223,25 @@ def listar_variedades_admin(
 ):
     #Lista TODAS las variedades (activas e inactivas) ordenadas por nombre.
     variedades = db.query(VariedadMelon).order_by(VariedadMelon.nombre).all()
-    return [_variedad_a_admin_response(v, db) for v in variedades]
+
+    # Una sola query con GROUP BY para los conteos de todas las variedades a
+    # la vez, en vez de una query de count() por cada variedad (N+1).
+    conteos_por_variedad = dict(
+        db.query(Conteo.variedad_id, func.count(Conteo.id))
+        .group_by(Conteo.variedad_id)
+        .all()
+    )
+
+    return [
+        {
+            "id": v.id,
+            "nombre": v.nombre,
+            "descripcion": v.descripcion,
+            "activo": v.activo,
+            "conteos_asociados": conteos_por_variedad.get(v.id, 0),
+        }
+        for v in variedades
+    ]
 
 
 @router.post("/admin/variedades", response_model=VariedadAdminResponse, status_code=201)
