@@ -2,7 +2,6 @@ venv/
 .venv/
 env/
 
-# 2. Caché de Python
 __pycache__/
 *.pyc
 *.pyo
@@ -24,3 +23,5 @@ yolo11n.pt
 .idea/
 .DS_Store
 __MACOSX/
+
+crear_admin.py

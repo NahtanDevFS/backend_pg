@@ -5,7 +5,7 @@ from app.core.database import get_db
 from app.schemas import usuario as schemas
 from app.services import usuario_service
 from app.api.deps import obtener_usuario_actual, requiere_admin
-from app.models.models import Usuario
+from app.models.models import Usuario, Rol
 from app.core.security import get_password_hash, verify_password, validar_password
 
 router = APIRouter(prefix="/usuarios", tags=["Usuarios"])
@@ -86,6 +86,30 @@ def editar_usuario(
         usuario.nombre = datos.nombre
 
     if datos.rol_id is not None:
+        rol_admin = db.query(Rol).filter(Rol.nombre == "Administrador").first()
+        # Si el usuario editado es Administrador actualmente y el cambio lo
+        # convertiría en otro rol, verificar que quede al menos otro admin
+        # activo en el sistema. Sin esto, el sistema podría quedarse sin
+        # ningún administrador y nadie podría revertirlo sin acceso directo
+        # a la base de datos.
+        if (
+            rol_admin
+            and usuario.rol_id == rol_admin.id
+            and datos.rol_id != rol_admin.id
+        ):
+            otros_admins = db.query(Usuario).filter(
+                Usuario.rol_id == rol_admin.id,
+                Usuario.activo == True,
+                Usuario.id != usuario.id,
+            ).count()
+            if otros_admins == 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "No se puede quitar el rol de Administrador: "
+                        "este es el único administrador activo del sistema."
+                    ),
+                )
         usuario.rol_id = datos.rol_id
 
     if datos.password is not None:
