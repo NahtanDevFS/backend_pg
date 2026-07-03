@@ -61,12 +61,15 @@ def verificar_bloqueo(identificador: str) -> Optional[int]:
         return None
 
 
-def registrar_intento_fallido(identificador: str) -> None:
+def registrar_intento_fallido(identificador: str) -> Optional[int]:
     """Incrementa el contador de intentos fallidos. Al llegar a MAX_INTENTOS
     activa el bloqueo temporal y reinicia el contador. Best-effort: nunca lanza.
+
+    Devuelve los intentos restantes antes del bloqueo (>= 0), o None si
+    Redis no está disponible (en ese caso no se puede informar el conteo).
     """
     if _cliente is None:
-        return
+        return None
     try:
         clave = _clave_intentos(identificador)
         intentos = _cliente.incr(clave)
@@ -76,8 +79,12 @@ def registrar_intento_fallido(identificador: str) -> None:
         if intentos >= MAX_INTENTOS:
             _cliente.set(_clave_bloqueo(identificador), "1", ex=BLOQUEO_SEGUNDOS)
             _cliente.delete(clave)
+            return 0
+
+        return MAX_INTENTOS - intentos
     except Exception as e:
         logger.warning("No se pudo registrar intento fallido de login para %s: %s", identificador, e)
+        return None
 
 
 def limpiar_intentos(identificador: str) -> None:
