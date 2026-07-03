@@ -8,10 +8,23 @@ from app.core.rate_limit_login import (
     verificar_bloqueo,
     registrar_intento_fallido,
     limpiar_intentos,
-    BLOQUEO_SEGUNDOS,
+    MAX_INTENTOS_USUARIO,
+    BLOQUEO_USUARIO_SEGUNDOS,
+    MAX_INTENTOS_IP,
+    BLOQUEO_IP_SEGUNDOS,
 )
 
 router = APIRouter(tags=["Autenticación"])
+
+
+def _obtener_ip_cliente(request: Request) -> str:
+
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        # X-Forwarded-For puede traer una cadena "cliente, proxy1, proxy2"
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "desconocida"
+
 
 @router.post("/login")
 def login(
@@ -19,11 +32,17 @@ def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db),
 ):
-    # Identificador del rate limit: usuario normalizado. Así el bloqueo
-    # protege esa cuenta sin importar desde qué IP vengan los intentos
-    identificador = form_data.username.strip().lower()
+    identificador_usuario = form_data.username.strip().lower()
 
-    segundos_restantes = verificar_bloqueo(identificador)
+    ip_cliente = _obtener_ip_cliente(request)
+
+    bloqueo_usuario = verificar_bloqueo(identificador_usuario, namespace="usuario")
+    bloqueo_ip = verificar_bloqueo(ip_cliente, namespace="ip")
+
+    segundos_restantes = None
+    if bloqueo_usuario is not None or bloqueo_ip is not None:
+        segundos_restantes = max(bloqueo_usuario or 0, bloqueo_ip or 0)
+
     if segundos_restantes is not None:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -38,10 +57,6 @@ def login(
             headers={"Retry-After": str(segundos_restantes)},
         )
 
-    # Nota deliberada de seguridad: el mensaje de error es idéntico tanto si
-    # el usuario no existe como si la contraseña es incorrecta, para no
-    # revelar qué usuarios existen en el sistema (user enumeration). El
-    # conteo de intentos se aplica igual en ambos casos.
     usuario = db.query(models.Usuario).filter(
         models.Usuario.nombre == form_data.username,
         models.Usuario.activo == True,
@@ -50,21 +65,35 @@ def login(
     credenciales_validas = usuario and verify_password(form_data.password, usuario.password_hash)
 
     if not credenciales_validas:
-        intentos_restantes = registrar_intento_fallido(identificador)
+        intentos_restantes_usuario = registrar_intento_fallido(
+            identificador_usuario,
+            namespace="usuario",
+            max_intentos=MAX_INTENTOS_USUARIO,
+            bloqueo_segundos=BLOQUEO_USUARIO_SEGUNDOS,
+        )
+        registrar_intento_fallido(
+            ip_cliente,
+            namespace="ip",
+            max_intentos=MAX_INTENTOS_IP,
+            bloqueo_segundos=BLOQUEO_IP_SEGUNDOS,
+        )
 
-        if intentos_restantes == 0:
-            # Este intento fue el que activó el bloqueo
+        if intentos_restantes_usuario == 0 or verificar_bloqueo(ip_cliente, namespace="ip") is not None:
+            # Este intento activó el bloqueo (por cuenta o por IP)
+            segundos = verificar_bloqueo(identificador_usuario, namespace="usuario") \
+                or verificar_bloqueo(ip_cliente, namespace="ip") \
+                or BLOQUEO_USUARIO_SEGUNDOS
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 detail={
                     "tipo": "bloqueado",
                     "mensaje": (
                         "Demasiados intentos fallidos. "
-                        f"Intenta de nuevo en {BLOQUEO_SEGUNDOS} segundos."
+                        f"Intenta de nuevo en {segundos} segundos."
                     ),
-                    "segundos_restantes": BLOQUEO_SEGUNDOS,
+                    "segundos_restantes": segundos,
                 },
-                headers={"Retry-After": str(BLOQUEO_SEGUNDOS)},
+                headers={"Retry-After": str(segundos)},
             )
 
         raise HTTPException(
@@ -72,12 +101,13 @@ def login(
             detail={
                 "tipo": "credenciales_invalidas",
                 "mensaje": "Usuario o contraseña incorrectos",
-                "intentos_restantes": intentos_restantes,  # None si Redis no disponible
+                "intentos_restantes": intentos_restantes_usuario,
             },
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    limpiar_intentos(identificador)
+    limpiar_intentos(identificador_usuario, namespace="usuario")
+    limpiar_intentos(ip_cliente, namespace="ip")
     access_token = crear_token_acceso(data={"sub": str(usuario.id)})
 
     return {"access_token": access_token, "token_type": "bearer"}
