@@ -1,4 +1,5 @@
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException, status
 from app.models.models import Usuario
 from app.schemas import usuario as schemas
@@ -23,6 +24,17 @@ def crear_usuario(db: Session, usuario_in: schemas.UsuarioCreate, creado_por: in
         created_by=creado_por
     )
     db.add(nuevo)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # Carrera: dos requests pasaron el chequeo de arriba casi al mismo
+        # tiempo y ambas intentaron insertar el mismo nombre de usuario.
+        # Postgres rechaza la segunda por la restricción UNIQUE; se
+        # traduce a la misma respuesta amigable en vez de un 500 genérico.
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ya existe un usuario con ese nombre."
+        )
     db.refresh(nuevo)
     return nuevo

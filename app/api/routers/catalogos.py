@@ -2,6 +2,7 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from app.core.database import get_db
 from app.models.models import VariedadMelon, CalibreMelon, VariedadMelonCalibre, EstadoConteo, Rol, Usuario, Departamento, Municipio, ClasificacionCalibreConteo, Conteo
 from app.schemas.catalogo import VariedadResponse, CalibreResponse, EstadoConteoResponse, RolResponse, DepartamentoResponse, MunicipioResponse, CalibreAdminResponse, CalibreCreate, CalibreUpdate, VariedadAdminResponse, VariedadCreate, VariedadUpdate, CalibreDeVariedadResponse, AsignarCalibreRequest
@@ -132,7 +133,19 @@ def crear_calibre(
         created_by=admin.id,
     )
     db.add(calibre)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # Carrera: dos requests casi simultáneas pasaron el chequeo de
+        # arriba con el mismo nombre exacto. Postgres rechaza la segunda
+        # por la restricción UNIQUE de la columna.
+        # Nota: esto no cubre el caso de nombres que solo difieren en
+        # mayúsculas/minúsculas (el chequeo de arriba es case-insensitive,
+        # pero la restricción UNIQUE de la base de datos es case-sensitive)
+        # — cerrar ese caso requeriría un índice único funcional sobre
+        # lower(nombre), un cambio de esquema fuera del alcance de este fix.
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Ya existe un calibre con ese nombre.")
     db.refresh(calibre)
     return _calibre_a_admin_response(calibre, db)
 
@@ -161,7 +174,11 @@ def editar_calibre(
     calibre.descripcion = (datos.descripcion or None)
     calibre.orden = datos.orden
     calibre.updated_by = admin.id
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Ya existe otro calibre con ese nombre.")
     db.refresh(calibre)
     return _calibre_a_admin_response(calibre, db)
 
@@ -263,7 +280,12 @@ def crear_variedad(
         created_by=admin.id,
     )
     db.add(variedad)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # Carrera: mismo caso que en crear_calibre, ver comentario ahí.
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Ya existe una variedad con ese nombre.")
     db.refresh(variedad)
     return _variedad_a_admin_response(variedad, db)
 
@@ -292,7 +314,11 @@ def editar_variedad(
     variedad.nombre = nombre
     variedad.descripcion = (datos.descripcion or None)
     variedad.updated_by = admin.id
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Ya existe otra variedad con ese nombre.")
     db.refresh(variedad)
     return _variedad_a_admin_response(variedad, db)
 

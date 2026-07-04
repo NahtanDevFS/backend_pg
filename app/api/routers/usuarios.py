@@ -1,6 +1,7 @@
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from app.core.database import get_db
 from app.schemas import usuario as schemas
 from app.services import usuario_service
@@ -119,7 +120,14 @@ def editar_usuario(
         usuario.debe_cambiar_password = (admin.id != usuario.id)
 
     usuario.updated_by = admin.id
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # Carrera: otra request cambió el nombre de otro usuario al mismo
+        # valor entre el chequeo de arriba y este commit. Se traduce a la
+        # misma respuesta amigable en vez de un 500 genérico.
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Ya existe un usuario con ese nombre.")
     db.refresh(usuario)
     return usuario
 
