@@ -11,7 +11,7 @@ from app.core.database import get_db
 from app.core.config import settings
 from app.models.models import (
     Usuario, CampoCultivo, Conteo,
-    ProcesamientoVideo, ResultadoIa, EstadoProcesamiento, CampoCultivoOperador
+    ProcesamientoVideo, ResultadoIa, EstadoProcesamiento, CampoCultivoOperador, EstadoConteo
 )
 from app.schemas.procesamiento import ProcesamientoResponse, AjusteResultadoRequest
 from app.api.deps import obtener_usuario_actual, requiere_admin, requiere_operador
@@ -807,6 +807,20 @@ def cancelar_procesamiento(
 ):
     # el operador cancela un video suyo (soft delete), libera sus surcos y recalcula el conteo
     proc = _get_procesamiento_del_usuario(procesamiento_id, usuario, db)
+
+    conteo = db.query(Conteo).filter(Conteo.id == proc.conteo_id).first()
+    if conteo is not None:
+        estado_conteo = db.query(EstadoConteo).filter(
+            EstadoConteo.id == conteo.estado_id
+        ).first()
+        if estado_conteo and estado_conteo.nombre == "completado":
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "No se puede anular un procesamiento de un conteo ya completado. "
+                    "Contacta a un administrador para reabrir el conteo si necesitas corregirlo."
+                ),
+            )
 
     estado_actual = db.query(EstadoProcesamiento).filter(
         EstadoProcesamiento.id == proc.estado_id
