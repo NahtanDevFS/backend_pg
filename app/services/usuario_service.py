@@ -1,3 +1,4 @@
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException, status
@@ -7,7 +8,17 @@ from app.core.security import get_password_hash, validar_password
 
 
 def crear_usuario(db: Session, usuario_in: schemas.UsuarioCreate, creado_por: int) -> Usuario:
-    existente = db.query(Usuario).filter(Usuario.nombre == usuario_in.nombre).first()
+    # Normaliza y verifica el nombre case-insensitive (consistente con el login).
+    nombre = usuario_in.nombre.strip()
+    if not nombre:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El nombre de usuario no puede estar vacío."
+        )
+
+    existente = db.query(Usuario).filter(
+        func.lower(Usuario.nombre) == nombre.lower()
+    ).first()
     if existente:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -18,7 +29,7 @@ def crear_usuario(db: Session, usuario_in: schemas.UsuarioCreate, creado_por: in
 
     nuevo = Usuario(
         rol_id=usuario_in.rol_id,
-        nombre=usuario_in.nombre,
+        nombre=nombre,
         password_hash=get_password_hash(usuario_in.password),
         debe_cambiar_password=True,  # contraseña puesta por el admin
         created_by=creado_por
@@ -27,10 +38,7 @@ def crear_usuario(db: Session, usuario_in: schemas.UsuarioCreate, creado_por: in
     try:
         db.commit()
     except IntegrityError:
-        # Carrera: dos requests pasaron el chequeo de arriba casi al mismo
-        # tiempo y ambas intentaron insertar el mismo nombre de usuario.
-        # Postgres rechaza la segunda por la restricción UNIQUE; se
-        # traduce a la misma respuesta amigable en vez de un 500 genérico.
+        # Carrera contra la restricción UNIQUE: responde amigable en vez de un 500.
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

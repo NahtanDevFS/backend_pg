@@ -30,8 +30,7 @@ class CampoCultivoResponse(BaseModel):
     id: int
     nombre: str
     municipio_id: int
-    # Nombres desnormalizados para conveniencia del frontend (decisión 1A).
-    # Se resuelven en el router a partir de la relación municipio -> departamento.
+    # Nombres desnormalizados resueltos en el router (municipio -> departamento).
     municipio_nombre: str
     departamento_id: int
     departamento_nombre: str

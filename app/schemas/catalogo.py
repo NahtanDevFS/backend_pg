@@ -89,8 +89,7 @@ class VariedadUpdate(BaseModel):
     descripcion: str | None = Field(None, max_length=2000)
 
 class CalibreDeVariedadResponse(BaseModel):
-    #Un calibre en el contexto de una variedad: incluye si está asignado
-    #(relación activa) y cuántos conteos de esa variedad lo han usado
+    # Un calibre en el contexto de una variedad: si está asignado y su historial en ella.
     calibre_id: int
     nombre: str
     descripcion: str | None = None

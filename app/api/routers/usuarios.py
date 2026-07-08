@@ -1,5 +1,6 @@
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from app.core.database import get_db
@@ -44,9 +45,7 @@ def cambiar_password_propia(
     db: Session = Depends(get_db),
     usuario_actual: Usuario = Depends(obtener_usuario_actual),
 ):
-    #Cualquier usuario autenticado cambia su propia contraseña. Debe acreditar
-    #la contraseña actual. Al hacerlo, se limpia el aviso debe_cambiar_password
-    #porque la contraseña ahora la estableció el propio dueño.
+    # El usuario cambia su propia contraseña acreditando la actual; limpia debe_cambiar_password.
     if not verify_password(datos.password_actual, usuario_actual.password_hash):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -77,22 +76,21 @@ def editar_usuario(
         raise HTTPException(status_code=404, detail="Usuario no encontrado.")
 
     if datos.nombre is not None:
-        # Verificar que el nuevo nombre no esté en uso por otro usuario
+        # Normaliza y verifica el nombre case-insensitive (igual que creación y login).
+        nombre = datos.nombre.strip()
+        if not nombre:
+            raise HTTPException(status_code=400, detail="El nombre de usuario no puede estar vacío.")
         existente = db.query(Usuario).filter(
-            Usuario.nombre == datos.nombre,
+            func.lower(Usuario.nombre) == nombre.lower(),
             Usuario.id != usuario_id
         ).first()
         if existente:
             raise HTTPException(status_code=400, detail="Ya existe un usuario con ese nombre.")
-        usuario.nombre = datos.nombre
+        usuario.nombre = nombre
 
     if datos.rol_id is not None:
         rol_admin = db.query(Rol).filter(Rol.nombre == "Administrador").first()
-        # Si el usuario editado es Administrador actualmente y el cambio lo
-        # convertiría en otro rol, verificar que quede al menos otro admin
-        # activo en el sistema. Sin esto, el sistema podría quedarse sin
-        # ningún administrador y nadie podría revertirlo sin acceso directo
-        # a la base de datos.
+        # Al quitar el rol Administrador, impide dejar al sistema sin ningún admin activo.
         if (
             rol_admin
             and usuario.rol_id == rol_admin.id
@@ -116,16 +114,14 @@ def editar_usuario(
     if datos.password is not None:
         validar_password(datos.password)
         usuario.password_hash = get_password_hash(datos.password)
-        # Si el admin se edita a sí mismo, es el dueño -> no debe forzar cambio, si edita a otro, esa contraseña la puso el admin -> avisar al usuario.
+        # Fuerza el aviso de cambio solo si el admin le puso la contraseña a otro usuario.
         usuario.debe_cambiar_password = (admin.id != usuario.id)
 
     usuario.updated_by = admin.id
     try:
         db.commit()
     except IntegrityError:
-        # Carrera: otra request cambió el nombre de otro usuario al mismo
-        # valor entre el chequeo de arriba y este commit. Se traduce a la
-        # misma respuesta amigable en vez de un 500 genérico.
+        # Carrera contra la restricción UNIQUE: responde amigable en vez de un 500.
         db.rollback()
         raise HTTPException(status_code=400, detail="Ya existe un usuario con ese nombre.")
     db.refresh(usuario)

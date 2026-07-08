@@ -6,11 +6,7 @@ from app.api.routers import usuarios, auth, cultivos, procesamientos, conteos, c
 
 app = FastAPI(title=settings.PROJECT_NAME)
 
-# Orígenes permitidos:
-# localhost:3000  app web (Next.js) en desarrollo
-# frontend Vercel app web en producción
-# * para app móvil (React Native / Expo no tiene origen fijo)
-# En producción debo reemplazar "*" por los dominios exactos
+# Orígenes CORS permitidos: web en desarrollo/producción y app móvil.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
@@ -25,9 +21,6 @@ app.include_router(cultivos.router)
 app.include_router(conteos.router)
 app.include_router(procesamientos.router)
 app.include_router(catalogos.router)
-
-# Archivos de video servidos estáticamente (solo para compatibilidad con la web existente). Los videos anotados para la app móvil se sirven a través del endpoint autenticado /procesamientos/{id}/video-anotado
-#app.mount("/videos", StaticFiles(directory="uploads"), name="videos")
 
 @app.get("/health")
 def health_check():

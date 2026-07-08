@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from datetime import datetime
 import os
+import shutil
 import base64
 from app.core.database import get_db
 from app.core.config import settings
@@ -30,7 +31,7 @@ router = APIRouter(prefix="/procesamientos", tags=["Procesamientos"])
 #Helpers
 
 def _get_procesamiento_del_usuario(procesamiento_id: int, usuario: Usuario, db: Session, incluir_inactivos: bool = False) -> ProcesamientoVideo:
-    #incluir_inactivos=True permite leer procesamientos cancelados (activo=False), necesario para que la pantalla pueda mostrar el estado 'cancelado'. Las acciones (subir, ajustar) lo dejan en False para no operar sobre cancelados.
+    # Devuelve un procesamiento verificando el acceso del operador; incluir_inactivos permite leer cancelados.
     q = db.query(ProcesamientoVideo).filter(ProcesamientoVideo.id == procesamiento_id)
     if not incluir_inactivos:
         q = q.filter(ProcesamientoVideo.activo == True)
@@ -59,7 +60,7 @@ def _get_procesamiento_cualquiera(procesamiento_id: int, db: Session) -> Procesa
 
 
 def _recalcular_conteo(conteo_id: int, db: Session):
-    #Recalcula el acumulado y los agregados de confiabilidad de un conteo a partir de sus procesamientos activos. Se usa al cancelar un procesamiento para que el video excluido deje de contar.
+    # Recalcula acumulado y agregados de confiabilidad del conteo desde sus procesamientos activos.
     conteo = db.query(Conteo).filter(Conteo.id == conteo_id).first()
     if not conteo:
         return
@@ -96,7 +97,7 @@ def _recalcular_conteo(conteo_id: int, db: Session):
 #Operador (rutas con segmentos literales)
 
 @router.post("/{procesamiento_id}/resultado-ia")
-async def recibir_resultado_ia(
+def recibir_resultado_ia(
         procesamiento_id: int,
         x_modal_secret: str = Header(...),
         conteo_ia: int = Form(...),
@@ -146,12 +147,11 @@ async def recibir_resultado_ia(
     nombre_salida = f"{procesamiento_id}_anotado.mp4"
     ruta_salida = video_service.obtener_ruta_fisica(nombre_salida)
     try:
+        # copyfileobj lee/escribe en bloques desde el archivo temporal que
+        # Starlette ya spool-eó; al ser un endpoint síncrono, este I/O corre
+        # en el threadpool de FastAPI y no bloquea el event loop.
         with open(ruta_salida, "wb") as f:
-            while True:
-                chunk = await video_anotado.read(1024 * 1024)
-                if not chunk:
-                    break
-                f.write(chunk)
+            shutil.copyfileobj(video_anotado.file, f, 1024 * 1024)
     except Exception:
         estado_error = db.query(EstadoProcesamiento).filter(
             EstadoProcesamiento.nombre == "error"
@@ -178,11 +178,12 @@ async def recibir_resultado_ia(
     estado_completado = db.query(EstadoProcesamiento).filter(
         EstadoProcesamiento.nombre == "completado"
     ).first()
+    if not estado_completado:
+        raise HTTPException(status_code=500, detail="Estado 'completado' no configurado.")
     proc.estado_id = estado_completado.id
 
     db.flush()
 
-    # Recalcular el acumulado del conteo
     # Recalcular el acumulado del conteo
     conteo = db.query(Conteo).filter(Conteo.id == proc.conteo_id).first()
     todos = db.query(ResultadoIa).join(ProcesamientoVideo).filter(
@@ -194,10 +195,7 @@ async def recibir_resultado_ia(
         for r in todos
     )
 
-    # Recalcular agregados de confiabilidad de la sesión, ponderados por
-    # total_frames_procesados. Solo se consideran los videos que tienen
-    # métricas y frames (> 0); los videos sin detecciones no arrastran el
-    # promedio. Si ningún video tiene métricas, los agregados quedan en None.
+    # Agregados de confiabilidad ponderados por frames; None si ningún video tiene métricas.
     con_metricas = [
         r for r in todos
         if r.promedio_confianza is not None
@@ -238,8 +236,8 @@ async def reportar_progreso(
         request: Request,
         x_modal_secret: str = Header(...),
 ):
-    #Recibe el progreso en vivo desde Modal mientras procesa el video, autenticado con el mismo secreto compartido que el callback de resultado, solo escribe en Redis (efímero), no toca la base de datos. Es best-effort: si algo falla, devuelve 200 igual para no entorpecer el procesamiento
-    #Body JSON esperado: {"progreso_pct": int, "conteo_parcial": int}
+    # Recibe el progreso en vivo de Modal y lo guarda en Redis (efímero, best-effort).
+    # Body JSON: {"progreso_pct": int, "conteo_parcial": int}
 
     # Validación del secreto en tiempo constante
     if not secrets.compare_digest(x_modal_secret, settings.MODAL_CALLBACK_SECRET):
@@ -253,7 +251,7 @@ async def reportar_progreso(
         # Body malformado: lo ignoramos sin romper nada
         return {"detail": "Progreso ignorado (body inválido)."}
 
-    # Acotar el porcentaje a [0, 99]. El 100 lo da el resultado final, no el progreso, para evitar mostrar "100%" antes de que exista el resultado.
+    # Acotar a [0, 99]: el 100% lo marca el resultado final, no el progreso.
     pct = max(0, min(99, pct))
 
     progreso.set_progreso(procesamiento_id, pct, parcial)
@@ -266,9 +264,7 @@ def consultar_progreso(
         db: Session = Depends(get_db),
         usuario: Usuario = Depends(requiere_operador),
 ):
-    #Devuelve el progreso en vivo para que la app móvil lo muestre, lo consulta el polling de la pantalla de procesamiento. Si no hay progreso en Redis (aún no empieza, ya terminó, o Redis no está disponible), devuelve valores en cero: la UI simplemente mostrará el spinner sin barra.
-
-    # Verifica acceso del usuario a este procesamiento (reutiliza el helper)
+    # Devuelve el progreso en vivo (Redis) para el polling de la app; ceros si no hay dato.
     _get_procesamiento_del_usuario(procesamiento_id, usuario, db)
 
     datos = progreso.get_progreso(procesamiento_id)
@@ -288,8 +284,7 @@ def descargar_video_original(
     token: str,
     db: Session = Depends(get_db),
 ):
-    #Descarga del video original mediante token firmado de un solo uso,lo consume Modal para procesar el video con GPU. No requiere auth de usuario: el token HMAC firmado es la credencial. TTL corto (15 min)
-
+    # Descarga del video original vía token HMAC firmado (lo consume Modal); sin auth de usuario.
     if not validar_token_descarga(procesamiento_id, token):
         raise HTTPException(status_code=403, detail="Token inválido o expirado.")
 
@@ -335,6 +330,41 @@ def registrar_procesamiento(
     ).first()
     if not acceso:
         raise HTTPException(status_code=403, detail="No tienes acceso a este campo de cultivo.")
+
+    # Validación del rango de surcos. La app ya valida en el cliente, pero la
+    # BD es la fuente de verdad: no debemos confiar solo en el frontend (un
+    # cliente con estado desactualizado o una llamada directa a la API podría
+    # crear rangos inválidos o solapados e inflar el acumulado del conteo).
+    if surco_inicio < 1 or surco_fin < surco_inicio:
+        raise HTTPException(
+            status_code=400,
+            detail="Rango de surcos inválido: el inicio debe ser >= 1 y el fin >= el inicio.",
+        )
+    if surco_fin > conteo.total_surcos:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"El surco final ({surco_fin}) supera el total de surcos del "
+                f"conteo ({conteo.total_surcos})."
+            ),
+        )
+
+    # Ningún procesamiento activo del conteo puede solapar el rango: cada surco
+    # se cuenta una sola vez. Mismo criterio que la reactivación admin.
+    conflicto = db.query(ProcesamientoVideo).filter(
+        ProcesamientoVideo.conteo_id == conteo_id,
+        ProcesamientoVideo.activo == True,
+        ProcesamientoVideo.surco_inicio <= surco_fin,
+        ProcesamientoVideo.surco_fin >= surco_inicio,
+    ).first()
+    if conflicto:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"El rango de surcos {surco_inicio}–{surco_fin} se solapa con un "
+                f"procesamiento activo existente (surcos {conflicto.surco_inicio}–{conflicto.surco_fin})."
+            ),
+        )
 
     estado_pendiente = db.query(EstadoProcesamiento).filter(
         EstadoProcesamiento.nombre == "pendiente"
@@ -394,8 +424,7 @@ def listar_por_conteo_admin(
     db: Session = Depends(get_db),
     _: Usuario = Depends(requiere_admin),
 ):
-    #Lista los procesamientos de un conteo. Por defecto solo activos (activo=True).
-    #Con ?incluir_cancelados=true devuelve también los cancelados (activo=False).
+    # Lista los procesamientos de un conteo; incluir_cancelados añade también los inactivos.
     query = db.query(ProcesamientoVideo).filter(
         ProcesamientoVideo.conteo_id == conteo_id
     )
@@ -410,7 +439,7 @@ def cancelar_procesamiento_admin(
     db: Session = Depends(get_db),
     admin: Usuario = Depends(requiere_admin),
 ):
-    #Cancela/anula cualquier procesamiento (soft delete), sin restricción de estado. Pensado para corregir equivocaciones, incluso sobre procesamientos ya 'completado'. Lo marca como 'cancelado' + activo=False y recalcula el conteo.
+    # Anula cualquier procesamiento (soft delete) sin restricción de estado y recalcula el conteo.
     proc = _get_procesamiento_cualquiera(procesamiento_id, db)
 
     estado_cancelado = db.query(EstadoProcesamiento).filter(
@@ -440,9 +469,7 @@ def reactivar_procesamiento_admin(
     db: Session = Depends(get_db),
     admin: Usuario = Depends(requiere_admin),
 ):
-    #Reactiva un procesamiento previamente cancelado, marcándolo de nuevo como 'completado' + activo=True.
-    #Solo funciona si el procesamiento tiene resultado de IA (estaba completado antes de cancelarse).
-    #Valida que no haya otro procesamiento activo que solape el mismo rango de surcos en el mismo conteo.
+    # Reactiva un procesamiento cancelado (requiere resultado de IA y que su rango de surcos no solape).
     proc = db.query(ProcesamientoVideo).filter(
         ProcesamientoVideo.id == procesamiento_id,
         ProcesamientoVideo.activo == False,
@@ -501,9 +528,7 @@ def obtener_procesamiento_admin(
     db: Session = Depends(get_db),
     _: Usuario = Depends(requiere_admin),
 ):
-    #Versión admin de obtener_procesamiento: sin restricción de operador asignado.
-    #La web administrativa la usa para ver el detalle de cualquier procesamiento.
-    #incluir_inactivos via _get_procesamiento_cualquiera (muestra cancelados).
+    # Detalle de cualquier procesamiento (admin, sin restricción de operador asignado).
     return _get_procesamiento_cualquiera(procesamiento_id, db)
 
 
@@ -516,8 +541,7 @@ def descargar_video_anotado_admin(
     db: Session = Depends(get_db),
     _: Usuario = Depends(requiere_admin),
 ):
-    #Versión admin de la descarga del video anotado, sin requerir asignación
-    #como operador. Usada por la web administrativa.
+    # Descarga del video anotado (admin, sin requerir asignación como operador).
     proc = _get_procesamiento_cualquiera(procesamiento_id, db)
 
     if not proc.video_anotado_url:
@@ -610,6 +634,8 @@ async def subir_video(
     estado_procesando = db.query(EstadoProcesamiento).filter(
         EstadoProcesamiento.nombre == "procesando"
     ).first()
+    if not estado_procesando:
+        raise HTTPException(status_code=500, detail="Estado 'procesando' no configurado.")
     proc.video_original_url = nombre_archivo
     proc.estado_id = estado_procesando.id
     db.commit()
@@ -636,9 +662,7 @@ def iniciar_subida_chunks(
     db: Session = Depends(get_db),
     usuario: Usuario = Depends(requiere_operador),
 ):
-    """Registra los metadatos de la subida por chunks (extensión y total de chunks).
-    Debe llamarse antes de enviar el primer chunk. Idempotente: si se llama de nuevo
-    con los mismos datos, simplemente sobreescribe la meta (útil para reintentos)."""
+    """Registra los metadatos de la subida por chunks (extensión y total). Idempotente."""
     proc = _get_procesamiento_del_usuario(procesamiento_id, usuario, db)
 
     estado_pendiente = db.query(EstadoProcesamiento).filter(
@@ -680,6 +704,8 @@ async def subir_chunk(
     estado_procesando = db.query(EstadoProcesamiento).filter(
         EstadoProcesamiento.nombre == "procesando"
     ).first()
+    if not estado_pendiente or not estado_procesando:
+        raise HTTPException(status_code=500, detail="Estados 'pendiente'/'procesando' no configurados.")
 
     if proc.estado_id not in (estado_pendiente.id, estado_procesando.id):
         print(f"[CHUNK {procesamiento_id}] FALLO estado: proc.estado_id={proc.estado_id} no es pendiente({estado_pendiente.id}) ni procesando({estado_procesando.id})")
@@ -765,8 +791,7 @@ def estado_subida_chunks(
     db: Session = Depends(get_db),
     usuario: Usuario = Depends(requiere_operador),
 ):
-    """Devuelve el índice del último chunk recibido y los bytes acumulados.
-    El cliente lo usa para reanudar una subida interrumpida sin repetir chunks ya enviados."""
+    """Índice del último chunk recibido y bytes acumulados, para reanudar una subida."""
     _get_procesamiento_del_usuario(procesamiento_id, usuario, db)
     return {
         "ultimo_chunk_recibido": video_service.ultimo_chunk_recibido(procesamiento_id),
@@ -780,8 +805,7 @@ def cancelar_procesamiento(
     db: Session = Depends(get_db),
     usuario: Usuario = Depends(requiere_operador),
 ):
-    #Cancela un procesamiento propio (soft delete). Permitido en estados 'pendiente', 'procesando' y 'completado'.
-    #Marca como 'cancelado' + activo=False, libera el rango de surcos y excluye el video del acumulado del conteo.
+    # Cancela un procesamiento propio (soft delete), libera sus surcos y recalcula el conteo.
     proc = _get_procesamiento_del_usuario(procesamiento_id, usuario, db)
 
     estado_actual = db.query(EstadoProcesamiento).filter(

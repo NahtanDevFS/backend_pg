@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.models import models
@@ -57,8 +58,9 @@ def login(
             headers={"Retry-After": str(segundos_restantes)},
         )
 
+    # Búsqueda case-insensitive del usuario, consistente con el rate-limit ya normalizado.
     usuario = db.query(models.Usuario).filter(
-        models.Usuario.nombre == form_data.username,
+        func.lower(models.Usuario.nombre) == identificador_usuario,
         models.Usuario.activo == True,
     ).first()
 

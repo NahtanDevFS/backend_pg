@@ -3,7 +3,7 @@ from app.core.database import SessionLocal
 from app.core.security import get_password_hash, validar_password
 from app.models.models import Usuario, Rol
 
-#Pide el usuario y la contraseña del admin de forma  interactiva en el momento de ejecutarlo
+# Crea un usuario administrador pidiendo credenciales de forma interactiva.
 
 db = SessionLocal()
 

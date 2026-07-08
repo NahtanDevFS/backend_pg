@@ -33,8 +33,7 @@ class ProcesamientoResponse(BaseModel):
     conteo_id: int
     usuario_id: int
     estado_id: int
-    # estado_nombre: nombre legible del estado ('pendiente', 'procesando',
-    # 'completado', 'error', 'cancelado'). Se resuelve desde la relación ORM.
+    # estado_nombre: nombre legible del estado, resuelto desde la relación ORM.
     estado_nombre: Optional[str] = None
     activo: bool = True
     surco_inicio: int
@@ -50,7 +49,7 @@ class ProcesamientoResponse(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _extraer_estado_nombre(cls, data: Any) -> Any:
-        #Inyecta estado_nombre leyendo la relación ORM 'estado'. Mantiene el objeto original para que Pydantic siga resolviendo el resto de campos por from_attributes.
+        # Inyecta estado_nombre desde la relación ORM 'estado'.
         estado = getattr(data, "estado", None)
         if estado is not None:
             try:

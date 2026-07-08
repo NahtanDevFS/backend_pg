@@ -22,8 +22,7 @@ EXTENSIONES_PERMITIDAS = {"mp4", "mov", "avi", "mkv"}
 
 
 def _validar_firma_video(primer_chunk: bytes, extension: str) -> bool:
-    #Verifica los magic bytes del archivo para confirmar que realmente
-    #es un video y no otro tipo de archivo renombrado
+    # Verifica los magic bytes para confirmar que el archivo es realmente un video.
     if len(primer_chunk) < 12:
         return False
     if extension in ("mp4", "mov"):
@@ -38,11 +37,7 @@ def _validar_firma_video(primer_chunk: bytes, extension: str) -> bool:
 #Subida clásica (un solo multipart, legacy)
 
 async def guardar_video_local(file: UploadFile, procesamiento_id: int) -> str:
-    #Guarda el video en disco de forma asíncrona, chunk a chunk.
-    #Valida extensión (whitelist), firma del archivo (magic bytes) y
-    #tamaño máximo. El nombre final se construye SOLO con datos del
-    #servidor para impedir path traversal
-
+    # Guarda el video en disco validando extensión, magic bytes y tamaño máximo.
     nombre_original = file.filename or ""
     extension = (
         nombre_original.rsplit(".", 1)[-1].lower() if "." in nombre_original else ""
@@ -167,8 +162,7 @@ def guardar_chunk(procesamiento_id: int, numero: int, data: bytes) -> None:
 
 
 def ensamblar_y_limpiar(procesamiento_id: int) -> str:
-    #Une todos los chunks en el archivo final, valida, elimina el directorio
-    #temporal y devuelve el nombre del archivo ensamblado
+    # Une los chunks, valida el archivo final, limpia el temporal y devuelve su nombre.
     meta = leer_meta_chunks(procesamiento_id)
     if meta is None:
         raise ValueError("No hay metadatos de chunks para este procesamiento.")
@@ -216,11 +210,7 @@ def _get_estado_id(db: Session, nombre: str) -> int:
 
 
 def tarea_procesar_video(procesamiento_id: int, nombre_archivo: str, usuario_id: int):
-    #Dispara el procesamiento en Modal (GPU remota). NO procesa localmente.
-    #Genera una URL firmada (TTL corto) para que Modal descargue el video
-    #original e invoca el endpoint de Modal. El resultado llega después por
-    #callback a POST /procesamientos/{id}/resultado-ia.
-    #El estado ya viene en 'procesando' desde el endpoint subir_video.
+    # Dispara el procesamiento en Modal (GPU remota); el resultado llega luego por callback.
     db: Session = SessionLocal()
     procesamiento = None
     try:
@@ -240,7 +230,7 @@ def tarea_procesar_video(procesamiento_id: int, nombre_archivo: str, usuario_id:
             "procesamiento_id": procesamiento_id,
             "url_video": url_video,
             "callback_base_url": settings.PUBLIC_BASE_URL,
-            "trigger_secret": settings.MODAL_CALLBACK_SECRET,
+            "trigger_secret": settings.MODAL_TRIGGER_SECRET,
         }
 
         resp = httpx.post(

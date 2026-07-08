@@ -17,18 +17,20 @@ class Settings:
 
     STORAGE_PATH: str = os.getenv("STORAGE_PATH", "./uploads")
 
-    # Secreto compartido con Modal para autenticar el callback de resultados
+    # Secreto con que Modal autentica su callback de resultados (Modal → backend).
     MODAL_CALLBACK_SECRET: str = os.environ.get("MODAL_CALLBACK_SECRET")
 
-    # URL pública base del backend, para construir las URLs firmadas que Modal usará para descargar el video original
+    # Secreto con que el backend autentica el disparo de trabajos (backend → Modal).
+    MODAL_TRIGGER_SECRET: str = os.environ.get("MODAL_TRIGGER_SECRET")
+
+    # URL pública base del backend, usada para firmar las URLs de descarga de video.
     PUBLIC_BASE_URL: str = os.environ.get("PUBLIC_BASE_URL", "http://localhost:8000")
 
     MODAL_ENDPOINT_URL: str = os.environ.get("MODAL_ENDPOINT_URL", "")
 
-    # URL de redis
     REDIS_URL: str = os.environ.get("REDIS_URL", "")
 
-    # Orígenes CORS separados por coma, en producción solo el dominio real
+    # Orígenes CORS separados por coma.
     CORS_ORIGINS: list[str] = [
         origen.strip()
         for origen in os.environ.get("CORS_ORIGINS", "http://localhost:3000").split(",")
@@ -43,6 +45,8 @@ class Settings:
             faltantes.append("SECRET_KEY")
         if not self.MODAL_CALLBACK_SECRET:
             faltantes.append("MODAL_CALLBACK_SECRET")
+        if not self.MODAL_TRIGGER_SECRET:
+            faltantes.append("MODAL_TRIGGER_SECRET")
         if faltantes:
             raise RuntimeError(
                 f"Faltan variables de entorno obligatorias: {', '.join(faltantes)}. "

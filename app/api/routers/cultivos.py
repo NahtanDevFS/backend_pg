@@ -13,7 +13,7 @@ router = APIRouter(prefix="/cultivos", tags=["Cultivos"])
 #Helpers
 
 def _to_response(cultivo: CampoCultivo) -> schemas.CampoCultivoResponse:
-    #Construye el response aplanando municipio -> departamento (decisión 1A)
+    # Arma el response aplanando municipio -> departamento.
     muni = cultivo.municipio
     depto = muni.departamento
     return schemas.CampoCultivoResponse(
@@ -109,8 +109,7 @@ def listar_todos_los_cultivos(
     db: Session = Depends(get_db),
     _: Usuario = Depends(requiere_admin)
 ):
-    #Lista campos de cultivo. Por defecto solo activos; con ?incluir_inactivos=true devuelve también los desactivados.
-    #Filtra por ?usuario_id= para ver los asignados a un operador (solo activos).
+    # Lista campos de cultivo; incluir_inactivos añade los desactivados y usuario_id filtra por operador.
     if usuario_id:
         cultivos = cultivo_service.obtener_cultivos_del_operador(db=db, usuario_id=usuario_id)
     else:
@@ -145,7 +144,7 @@ def desactivar_cultivo(
     db: Session = Depends(get_db),
     admin: Usuario = Depends(requiere_admin)
 ):
-    #Archiva (soft-delete) un campo de cultivo y, en cascada, toda su información asociada: operadores asignados, conteos, y de cada conteo sus procesamientos y clasificaciones por calibre. Solo se tocan los registros que estaban activos, los que ya estaban inactivos (p.ej. un procesamiento cancelado) se respetan. Cada registro apagado por la cascada se marca con desactivado_por_campo_cultivo=True para poder reactivarlo de forma determinista si se reactiva el campo.
+    # Soft-delete del campo y, en cascada, sus operadores, conteos, procesamientos y clasificaciones activos.
     from app.models.models import (
         CampoCultivoOperador, Conteo, ProcesamientoVideo, ClasificacionCalibreConteo
     )
@@ -209,9 +208,7 @@ def reactivar_cultivo(
     db: Session = Depends(get_db),
     admin: Usuario = Depends(requiere_admin)
 ):
-    #Reactiva un campo de cultivo previamente desactivado y, en cascada, toda la información
-    #que fue desactivada junto con él (marcada con desactivado_por_campo_cultivo=True).
-    #Los registros que ya estaban inactivos antes de la desactivación del campo NO se reactivan.
+    # Reactiva el campo y restaura en cascada solo lo que fue apagado junto con él.
     from app.models.models import (
         CampoCultivoOperador, Conteo, ProcesamientoVideo, ClasificacionCalibreConteo
     )

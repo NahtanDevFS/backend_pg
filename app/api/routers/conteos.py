@@ -15,7 +15,7 @@ router = APIRouter(prefix="/conteos", tags=["Conteos"])
 #Helpers
 
 def _get_conteo_del_usuario(conteo_id: int, usuario: Usuario, db: Session) -> Conteo:
-    #Devuelve un conteo verificando que el operador tiene acceso al campo de cultivo correspondiente a través de campo_cultivo_operador
+    # Devuelve un conteo verificando el acceso del operador a su campo de cultivo.
     conteo = db.query(Conteo).filter(
         Conteo.id == conteo_id,
         Conteo.activo == True
@@ -34,8 +34,7 @@ def _get_conteo_del_usuario(conteo_id: int, usuario: Usuario, db: Session) -> Co
 
 
 def _get_conteo_cualquiera(conteo_id: int, db: Session, incluir_inactivos: bool = False) -> Conteo:
-    """Devuelve cualquier conteo sin restricción de dueño (uso admin).
-    Por defecto solo activos; incluir_inactivos=True permite leer conteos desactivados."""
+    """Devuelve cualquier conteo (uso admin); incluir_inactivos permite leer los desactivados."""
     q = db.query(Conteo).filter(Conteo.id == conteo_id)
     if not incluir_inactivos:
         q = q.filter(Conteo.activo == True)
@@ -46,12 +45,7 @@ def _get_conteo_cualquiera(conteo_id: int, db: Session, incluir_inactivos: bool 
 
 
 def _recalcular_clasificaciones(conteo_id: int, db: Session) -> None:
-    """Recalcula las cantidades extrapoladas de cada ClasificacionCalibreConteo
-    usando el total acumulado actual del conteo y el método Hamilton (residuo mayor).
-
-    Solo actúa si ya existen clasificaciones activas para el conteo.
-    Si el total acumulado es 0, deja las extrapoladas en 0 sin borrar los registros.
-    No hace commit — el caller es responsable del commit."""
+    """Recalcula las cantidades extrapoladas por calibre (método Hamilton) sin hacer commit."""
     clasificaciones = db.query(ClasificacionCalibreConteo).filter(
         ClasificacionCalibreConteo.conteo_id == conteo_id,
         ClasificacionCalibreConteo.activo == True,
@@ -75,8 +69,7 @@ def _recalcular_clasificaciones(conteo_id: int, db: Session) -> None:
             c.cantidad_extrapolada = 0
         return
 
-    # Método Hamilton: asignar parte entera primero, luego repartir faltantes
-    # por residuo mayor (igual que en guardar_muestreo)
+    # Método Hamilton: parte entera primero, luego reparte faltantes por residuo mayor.
     calculos = []
     for c in clasificaciones:
         ideal = c.cantidad_muestreo / total_muestreo * total_acumulado
@@ -228,9 +221,7 @@ def historial_global(
     db: Session = Depends(get_db),
     _: Usuario  = Depends(requiere_admin)
 ):
-    #Devuelve los conteos del sistema, paginados, con filtros opcionales.
-    #Por defecto solo activos; con ?incluir_inactivos=true devuelve también los desactivados.
-
+    # Historial global de conteos paginado, con filtros opcionales.
     query = db.query(Conteo)
     if not incluir_inactivos:
         query = query.filter(Conteo.activo == True)
@@ -288,11 +279,7 @@ def desactivar_conteo_admin(
     db: Session = Depends(get_db),
     admin: Usuario = Depends(requiere_admin),
 ):
-    #Soft-delete de un conteo: lo marca como activo=False junto con sus
-    #procesamientos activos, sus clasificaciones y sus clasificaciones de calibre.
-    #Solo se tocan registros que estaban activos; los ya inactivos se respetan.
-    #Cada registro apagado se marca con desactivado_por_campo_cultivo=True
-    #(reutilizamos el flag ya existente) para poder reactivar de forma determinista.
+    # Soft-delete del conteo y, en cascada, sus procesamientos y clasificaciones activos.
     from app.models.models import ProcesamientoVideo, ClasificacionCalibreConteo
 
     conteo = _get_conteo_cualquiera(conteo_id, db)  # solo activos
@@ -335,10 +322,7 @@ def reactivar_conteo_admin(
     db: Session = Depends(get_db),
     admin: Usuario = Depends(requiere_admin),
 ):
-    #Reactiva un conteo previamente desactivado directamente (desactivado_por_campo_cultivo=False).
-    #Restaura en cascada sus procesamientos y clasificaciones que fueron marcados con
-    #desactivado_por_campo_cultivo=True durante la desactivación del conteo.
-    #No reactiva conteos que fueron desactivados por la cascada del campo de cultivo.
+    # Reactiva un conteo desactivado directamente y restaura en cascada lo apagado con él.
     from app.models.models import ProcesamientoVideo, ClasificacionCalibreConteo
 
     conteo = db.query(Conteo).filter(
@@ -407,6 +391,8 @@ def completar_conteo(
         )
 
     estado = db.query(EstadoConteo).filter(EstadoConteo.nombre == "completado").first()
+    if not estado:
+        raise HTTPException(status_code=500, detail="Estado 'completado' no configurado.")
     conteo.estado_id = estado.id
     conteo.updated_by = usuario.id
     db.commit()
@@ -420,9 +406,7 @@ def cambiar_estado_conteo_admin(
     db: Session = Depends(get_db),
     admin: Usuario = Depends(requiere_admin),
 ):
-    #Permite al administrador mover libremente el conteo entre estados
-    #(p.ej. reabrir un completado a 'en_progreso' o viceversa). Pensado para
-    #corregir errores desde la web administrativa.
+    # El admin mueve el conteo a cualquier estado (p. ej. reabrir un completado).
     conteo = _get_conteo_cualquiera(conteo_id, db)
 
     estado = db.query(EstadoConteo).filter(
@@ -448,10 +432,7 @@ def comparar_con_anterior(
     db: Session = Depends(get_db),
     usuario: Usuario = Depends(requiere_operador)
 ):
-    """
-    Devuelve el conteo completado inmediatamente anterior del mismo campo de cultivo
-    y calcula la variación porcentual respecto al conteo actual.
-    """
+    """Devuelve el conteo completado anterior del mismo campo y la variación porcentual."""
     conteo_actual = _get_conteo_del_usuario(conteo_id, usuario, db)
 
     if conteo_actual.conteo_total_acumulado == 0:
@@ -505,15 +486,9 @@ def guardar_muestreo(
             detail=f"La suma de cantidades por calibre ({suma}) debe ser igual al total del muestreo ({datos.total_muestreo})."
         )
 
-    db.query(ClasificacionCalibreConteo).filter(
-        ClasificacionCalibreConteo.conteo_id == conteo_id
-    ).delete()
-
     total_acumulado = conteo.conteo_total_acumulado
 
-    #Reparto por metodo del residuo mayor (Largest Remainder / Hamilton)
-    # Redondear cada calibre por separado hace que la suma de extrapolados no cuadre con el total (p.ej. 50/20/10/10/10 sobre 48 daba 49). En su lugar:
-    # 1) a cada calibre se le asigna la parte entera (floor) de su cantidad ideal  2) las unidades faltantes para llegar al total se reparten de a una a los calibres con mayor parte decimal (los que más "merecen" la unidad extra) así la suma de cantidades extrapoladas es siempre exactamente el total.
+    # Reparto por método del residuo mayor (Hamilton): la suma de extrapolados cuadra con el total.
     calculos = []
     for item in datos.items:
         calibre = db.query(CalibreMelon).filter(CalibreMelon.id == item.calibre_id).first()
@@ -548,16 +523,45 @@ def guardar_muestreo(
     for i in range(max(0, min(faltantes, len(orden)))):
         orden[i]["base"] += 1
 
+    # Upsert en vez de borrar todo y recrear: se actualizan en el sitio las
+    # clasificaciones existentes (reactivando cualquiera que hubiera quedado
+    # soft-deleted por una cascada), se insertan las de calibres nuevos y se
+    # eliminan solo las de calibres que ya no forman parte del muestreo. Así se
+    # respeta la UNIQUE(conteo_id, calibre_id) sin el hard-delete masivo previo.
+    existentes = {
+        fila.calibre_id: fila
+        for fila in db.query(ClasificacionCalibreConteo).filter(
+            ClasificacionCalibreConteo.conteo_id == conteo_id
+        ).all()
+    }
+    calibres_nuevos = {c["item"].calibre_id for c in calculos}
+
+    # Calibres que ya no están en el muestreo actualizado: se retiran.
+    for calibre_id, fila in existentes.items():
+        if calibre_id not in calibres_nuevos:
+            db.delete(fila)
+
     for c in calculos:
-        db.add(ClasificacionCalibreConteo(
-            conteo_id=conteo_id,
-            calibre_id=c["item"].calibre_id,
-            cantidad_muestreo=c["item"].cantidad_muestreo,
-            total_muestreo=datos.total_muestreo,
-            porcentaje=c["porcentaje"],
-            cantidad_extrapolada=c["base"],
-            created_by=usuario.id
-        ))
+        item = c["item"]
+        fila = existentes.get(item.calibre_id)
+        if fila is not None:
+            fila.cantidad_muestreo = item.cantidad_muestreo
+            fila.total_muestreo = datos.total_muestreo
+            fila.porcentaje = c["porcentaje"]
+            fila.cantidad_extrapolada = c["base"]
+            fila.activo = True
+            fila.desactivado_por_campo_cultivo = False
+            fila.updated_by = usuario.id
+        else:
+            db.add(ClasificacionCalibreConteo(
+                conteo_id=conteo_id,
+                calibre_id=item.calibre_id,
+                cantidad_muestreo=item.cantidad_muestreo,
+                total_muestreo=datos.total_muestreo,
+                porcentaje=c["porcentaje"],
+                cantidad_extrapolada=c["base"],
+                created_by=usuario.id,
+            ))
 
     db.commit()
     return _build_muestreo_response(conteo, db)

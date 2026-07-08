@@ -26,9 +26,7 @@ def listar_calibres_por_variedad(
         VariedadMelonCalibre.variedad_id == variedad_id,
         VariedadMelonCalibre.activo == True
     ).all()
-    # Solo calibres que además estén activos en el catálogo: si un calibre fue
-    # desactivado, deja de ofrecerse para nuevos muestreos aunque la relación
-    # variedad-calibre siga activa.
+    # Solo calibres activos en el catálogo, aunque la relación variedad-calibre siga activa.
     calibres = [r.calibre for r in relaciones if r.calibre.activo]
     return sorted(calibres, key=lambda c: c.orden)
 
@@ -56,7 +54,7 @@ def listar_municipios_por_departamento(
     db: Session = Depends(get_db),
     _: Usuario = Depends(obtener_usuario_actual)
 ):
-    #Lista los municipios de un departamento, ordenados alfabéticamente (para el selector en cascada)
+    #Lista los municipios de un departamento, ordenados alfabéticamente para el selector en cascada
     return db.query(Municipio).filter(
         Municipio.departamento_id == departamento_id,
         Municipio.activo == True
@@ -88,9 +86,7 @@ def listar_calibres_admin(
     #Lista todos los calibres (activos e inactivos) ordenados por 'orden'.
     calibres = db.query(CalibreMelon).order_by(CalibreMelon.orden, CalibreMelon.nombre).all()
 
-    # Una sola query con GROUP BY para los conteos de todos los calibres a
-    # la vez, en vez de una query de count() por cada calibre (N+1). El
-    # resultado se vuelca a un dict para armar cada response en memoria.
+    # Conteos de todos los calibres en una sola query con GROUP BY
     conteos_por_calibre = dict(
         db.query(
             ClasificacionCalibreConteo.calibre_id,
@@ -136,14 +132,6 @@ def crear_calibre(
     try:
         db.commit()
     except IntegrityError:
-        # Carrera: dos requests casi simultáneas pasaron el chequeo de
-        # arriba con el mismo nombre exacto. Postgres rechaza la segunda
-        # por la restricción UNIQUE de la columna.
-        # Nota: esto no cubre el caso de nombres que solo difieren en
-        # mayúsculas/minúsculas (el chequeo de arriba es case-insensitive,
-        # pero la restricción UNIQUE de la base de datos es case-sensitive)
-        # — cerrar ese caso requeriría un índice único funcional sobre
-        # lower(nombre), un cambio de esquema fuera del alcance de este fix.
         db.rollback()
         raise HTTPException(status_code=409, detail="Ya existe un calibre con ese nombre.")
     db.refresh(calibre)
@@ -157,7 +145,7 @@ def editar_calibre(
     db: Session = Depends(get_db),
     admin: Usuario = Depends(requiere_admin),
 ):
-    #Edita nombre/descripcion/orden. El cambio de nombre se refleja en los conteos históricos (la FK apunta al mismo registro), que es el comportamiento deseado
+    # Edita nombre/descripción/orden, el cambio de nombre se refleja en los conteos históricos
     calibre = db.query(CalibreMelon).filter(CalibreMelon.id == calibre_id).first()
     if not calibre:
         raise HTTPException(status_code=404, detail="Calibre no encontrado.")
@@ -189,8 +177,7 @@ def desactivar_calibre(
     db: Session = Depends(get_db),
     admin: Usuario = Depends(requiere_admin),
 ):
-    #Soft-delete: el calibre deja de ofrecerse para nuevos muestreos, pero los
-    #conteos históricos que lo usaron quedan intactos (la FK sigue resolviendo).
+    # Soft-delete: deja de ofrecerse el calibre pero los conteos históricos quedan intactos
     calibre = db.query(CalibreMelon).filter(CalibreMelon.id == calibre_id).first()
     if not calibre:
         raise HTTPException(status_code=404, detail="Calibre no encontrado.")
@@ -241,8 +228,7 @@ def listar_variedades_admin(
     #Lista TODAS las variedades (activas e inactivas) ordenadas por nombre.
     variedades = db.query(VariedadMelon).order_by(VariedadMelon.nombre).all()
 
-    # Una sola query con GROUP BY para los conteos de todas las variedades a
-    # la vez, en vez de una query de count() por cada variedad (N+1).
+    # Conteos de todas las variedades en una sola query con GROUP BY (evita N+1).
     conteos_por_variedad = dict(
         db.query(Conteo.variedad_id, func.count(Conteo.id))
         .group_by(Conteo.variedad_id)
@@ -297,8 +283,7 @@ def editar_variedad(
     db: Session = Depends(get_db),
     admin: Usuario = Depends(requiere_admin),
 ):
-    #Edita nombre/descripcion. El cambio de nombre se refleja en los conteos
-    #históricos (la FK apunta al mismo registro), que es el comportamiento deseado.
+    # Edita nombre/descripción; el cambio de nombre se refleja en los conteos históricos.
     variedad = db.query(VariedadMelon).filter(VariedadMelon.id == variedad_id).first()
     if not variedad:
         raise HTTPException(status_code=404, detail="Variedad no encontrada.")
@@ -329,8 +314,7 @@ def desactivar_variedad(
     db: Session = Depends(get_db),
     admin: Usuario = Depends(requiere_admin),
 ):
-    #Soft-delete: la variedad deja de ofrecerse para nuevos conteos, pero los
-    #conteos históricos que la usaron quedan intactos (la FK sigue resolviendo).
+    # Soft-delete: deja de ofrecerse la variedad pero los conteos históricos quedan intactos.
     variedad = db.query(VariedadMelon).filter(VariedadMelon.id == variedad_id).first()
     if not variedad:
         raise HTTPException(status_code=404, detail="Variedad no encontrada.")
@@ -357,11 +341,9 @@ def activar_variedad(
     return _variedad_a_admin_response(variedad, db)
 
 
-# ── Relación variedad ↔ calibre (admin, Fase 3) ─────────────────
 
 def _contar_conteos_variedad_calibre(variedad_id: int, calibre_id: int, db: Session) -> int:
-    #Cuántos conteos de ESTA variedad usaron ESTE calibre en su muestreo.
-    #Sirve para advertir al quitar un calibre que tiene historial en la variedad.
+    # Cuántos conteos de esta variedad usaron este calibre (para advertir al quitarlo).
     return db.query(func.count(ClasificacionCalibreConteo.id)).join(
         Conteo, Conteo.id == ClasificacionCalibreConteo.conteo_id
     ).filter(
@@ -379,9 +361,7 @@ def listar_calibres_de_variedad_admin(
     db: Session = Depends(get_db),
     _: Usuario = Depends(requiere_admin),
 ):
-    #Lista TODOS los calibres activos del sistema, indicando para cada uno si
-    #está asignado a esta variedad (relación activa) y cuántos conteos de la
-    #variedad lo han usado. Pensado para el modal de gestión de calibres.
+    # Lista los calibres activos indicando si están asignados a la variedad y su historial en ella.
     variedad = db.query(VariedadMelon).filter(VariedadMelon.id == variedad_id).first()
     if not variedad:
         raise HTTPException(status_code=404, detail="Variedad no encontrada.")
@@ -416,8 +396,7 @@ def asignar_calibre_a_variedad(
     db: Session = Depends(get_db),
     admin: Usuario = Depends(requiere_admin),
 ):
-    #Asigna un calibre a una variedad. Si la fila puente ya existe pero está
-    #inactiva, la reactiva (respeta la UNIQUE constraint variedad+calibre).
+    # Asigna un calibre a una variedad, reactivando la fila puente si ya existía inactiva.
     variedad = db.query(VariedadMelon).filter(VariedadMelon.id == variedad_id).first()
     if not variedad:
         raise HTTPException(status_code=404, detail="Variedad no encontrada.")
@@ -454,9 +433,6 @@ def quitar_calibre_de_variedad(
     db: Session = Depends(get_db),
     admin: Usuario = Depends(requiere_admin),
 ):
-    #Quita (soft-delete) la relación variedad-calibre. NO toca los conteos
-    #históricos: las clasificaciones ya guardadas con este calibre se conservan.
-    #Solo deja de ofrecerse el calibre para nuevos muestreos de esta variedad.
     rel = db.query(VariedadMelonCalibre).filter(
         VariedadMelonCalibre.variedad_id == variedad_id,
         VariedadMelonCalibre.calibre_id == calibre_id,

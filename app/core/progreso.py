@@ -8,10 +8,10 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-# TTL del progreso en Redis, si por alguna razón nunca llega el callback final que limpia la clave, igual desaparece sola pasado este tiempo. Holgado para cubrir videos largos, 30 minutos
+# TTL de la clave de progreso en Redis (30 min); se autolimpia si nunca llega el callback final.
 _TTL_SEGUNDOS = 30 * 60
 
-# Cliente Redis único por proceso, decode_responses=True para trabajar con str en vez de bytes, si la URL no está configurada, queda None y todo el módulo se comporta como un no-op silencioso
+# Cliente Redis único por proceso; None (no-op silencioso) si no hay REDIS_URL configurada.
 _cliente: Optional[redis.Redis] = None
 
 if settings.REDIS_URL:

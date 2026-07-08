@@ -5,7 +5,7 @@ from app.core.config import settings
 
 
 def generar_token_descarga(procesamiento_id: int, ttl_segundos: int = 900) -> str:
-    #Genera un token firmado para descargar el video original, válido por `ttl_segundos` (por defecto 15 min). Formato: {expira}.{firma}
+    # Genera un token firmado (formato {expira}.{firma}) válido por ttl_segundos.
     expira = int(time.time()) + ttl_segundos
     mensaje = f"{procesamiento_id}:{expira}"
     firma = hmac.new(
@@ -17,7 +17,7 @@ def generar_token_descarga(procesamiento_id: int, ttl_segundos: int = 900) -> st
 
 
 def validar_token_descarga(procesamiento_id: int, token: str) -> bool:
-    #Valida un token de descarga, devuelve True solo si la firma es correcta y el token no ha expirado
+    # Valida el token: True solo si la firma es correcta y no ha expirado.
     try:
         expira_str, firma = token.split(".", 1)
         expira = int(expira_str)

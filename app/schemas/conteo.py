@@ -42,7 +42,7 @@ class ConteoResponse(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _extraer_nombres(cls, data: Any) -> Any:
-        #Inyecta los nombres desnormalizados leyendo las relaciones ORM (variedad, cultivo, creador). Se conserva el objeto original para que Pydantic siga resolviendo el resto por from_attributes.
+        # Inyecta los nombres desnormalizados (variedad, cultivo, creador, estado) desde las relaciones ORM.
         variedad = getattr(data, "variedad", None)
         if variedad is not None:
             try:
@@ -88,7 +88,7 @@ class ComparacionAnteriorResponse(BaseModel):
     hay_historial: bool
 
 class HistorialPaginadoResponse(BaseModel):
-    #Respuesta paginada del historial: la tanda de conteos + el total global (para que el frontend calcule cuántas páginas hay)
+    # Respuesta paginada del historial: la tanda de conteos + el total global.
     items: List[ConteoResponse]
     total: int
 
