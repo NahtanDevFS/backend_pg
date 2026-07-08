@@ -14,7 +14,7 @@ class ResultadoIaResponse(BaseModel):
     conteo_ajustado: Optional[int] = None
     observaciones_ajuste: Optional[str] = None
     tiempo_procesamiento_seg: Optional[float] = None
-    # Campos de confiabilidad requeridos por la app móvil
+    # campos de confiabilidad que necesita la app movil
     promedio_confianza: Optional[float] = None
     porcentaje_baja_confianza: Optional[float] = None
     total_frames_procesados: Optional[int] = None
@@ -24,7 +24,7 @@ class ResultadoIaResponse(BaseModel):
     @computed_field
     @property
     def nivel_confiabilidad(self) -> Optional[str]:
-        #Nivel derivado ('alto', 'moderado', 'bajo') de este video. None si no hay métricas.
+        # nivel de este video (alto/moderado/bajo), None si no hay metricas
         return derivar_nivel(self.promedio_confianza, self.porcentaje_baja_confianza)
 
 
@@ -33,7 +33,7 @@ class ProcesamientoResponse(BaseModel):
     conteo_id: int
     usuario_id: int
     estado_id: int
-    # estado_nombre: nombre legible del estado, resuelto desde la relación ORM.
+    # estado_nombre: el nombre legible del estado, sale de la relacion ORM
     estado_nombre: Optional[str] = None
     activo: bool = True
     surco_inicio: int
@@ -49,7 +49,7 @@ class ProcesamientoResponse(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _extraer_estado_nombre(cls, data: Any) -> Any:
-        # Inyecta estado_nombre desde la relación ORM 'estado'.
+        # mete el estado_nombre leyendo la relacion ORM 'estado'
         estado = getattr(data, "estado", None)
         if estado is not None:
             try:

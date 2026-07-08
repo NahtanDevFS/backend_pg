@@ -11,18 +11,18 @@ from app.core.firma import generar_token_descarga
 
 os.makedirs(settings.STORAGE_PATH, exist_ok=True)
 
-# Tamaño máximo permitido para el video: 10 GB
+# tamaño maximo del video: 10 GB
 MAX_VIDEO_SIZE_BYTES = 10 * 1024 * 1024 * 1024
 
-# Tamaño del chunk de lectura/escritura al guardar el video completo: 1 MB
+# de a cuanto leemos/escribimos al guardar: 1 MB
 CHUNK_SIZE = 1024 * 1024
 
-# Extensiones de video permitidas
+# extensiones que dejamos pasar
 EXTENSIONES_PERMITIDAS = {"mp4", "mov", "avi", "mkv"}
 
 
 def _validar_firma_video(primer_chunk: bytes, extension: str) -> bool:
-    # Verifica los magic bytes para confirmar que el archivo es realmente un video.
+    # revisa los magic bytes pa confirmar que de verdad es un video y no otra cosa con la extension cambiada
     if len(primer_chunk) < 12:
         return False
     if extension in ("mp4", "mov"):
@@ -34,10 +34,11 @@ def _validar_firma_video(primer_chunk: bytes, extension: str) -> bool:
     return False
 
 
-#Subida clásica (un solo multipart, legacy)
+# subida clasica de un solo golpe (legacy), la app hoy usa la de chunks
 
 async def guardar_video_local(file: UploadFile, procesamiento_id: int) -> str:
-    # Guarda el video en disco validando extensión, magic bytes y tamaño máximo.
+    # guarda el video en disco validando extension, magic bytes y tamaño
+    # el nombre lo arma el server con puros datos de aca pa que no metan path traversal
     nombre_original = file.filename or ""
     extension = (
         nombre_original.rsplit(".", 1)[-1].lower() if "." in nombre_original else ""
@@ -93,10 +94,10 @@ async def guardar_video_local(file: UploadFile, procesamiento_id: int) -> str:
     return nombre
 
 
-#Subida por chunks (resumable)
+# subida por pedazos, se puede reanudar si se corta la conexion
 
 def _dir_chunks(procesamiento_id: int) -> str:
-    #Directorio temporal donde se guardan los chunks de un procesamiento
+    # carpeta temporal donde van cayendo los chunks del video
     d = os.path.join(settings.STORAGE_PATH, "chunks", str(procesamiento_id))
     os.makedirs(d, exist_ok=True)
     return d
@@ -107,7 +108,7 @@ def _ruta_chunk(procesamiento_id: int, numero: int) -> str:
 
 
 def _ruta_meta(procesamiento_id: int) -> str:
-    #Archivo de metadatos: extensión y total de chunks esperados
+    # archivito con la meta: extension y cuantos chunks esperamos
     return os.path.join(_dir_chunks(procesamiento_id), "meta.txt")
 
 
@@ -128,7 +129,7 @@ def leer_meta_chunks(procesamiento_id: int) -> tuple[str, int] | None:
 
 
 def bytes_recibidos(procesamiento_id: int) -> int:
-    #Suma del tamaño de todos los chunks ya guardados
+    # suma el peso de todos los chunks que ya llegaron
     d = _dir_chunks(procesamiento_id)
     if not os.path.exists(d):
         return 0
@@ -140,7 +141,7 @@ def bytes_recibidos(procesamiento_id: int) -> int:
 
 
 def ultimo_chunk_recibido(procesamiento_id: int) -> int:
-    #Índice (base 0) del último chunk guardado. -1 si ninguno
+    # indice del ultimo chunk guardado (base 0), -1 si todavia no hay ninguno
     d = _dir_chunks(procesamiento_id)
     if not os.path.exists(d):
         return -1
@@ -155,14 +156,14 @@ def ultimo_chunk_recibido(procesamiento_id: int) -> int:
 
 
 def guardar_chunk(procesamiento_id: int, numero: int, data: bytes) -> None:
-    #Persiste un chunk en disco. Idempotente: si ya existe, lo sobreescribe#
+    # guarda un chunk en disco, si ya existia lo pisa (idempotente pal retry)
     ruta = _ruta_chunk(procesamiento_id, numero)
     with open(ruta, "wb") as f:
         f.write(data)
 
 
 def ensamblar_y_limpiar(procesamiento_id: int) -> str:
-    # Une los chunks, valida el archivo final, limpia el temporal y devuelve su nombre.
+    # pega todos los chunks en el archivo final, lo valida, borra el temporal y devuelve el nombre
     meta = leer_meta_chunks(procesamiento_id)
     if meta is None:
         raise ValueError("No hay metadatos de chunks para este procesamiento.")
@@ -182,14 +183,14 @@ def ensamblar_y_limpiar(procesamiento_id: int) -> str:
             with open(ruta_chunk, "rb") as f_in:
                 f_out.write(f_in.read())
 
-    # Validar magic bytes del archivo ensamblado
+    # revisamos los magic bytes del archivo ya armado por si algun chunk vino chueco
     with open(ruta_final, "rb") as f:
         primer_bloque = f.read(12)
     if not _validar_firma_video(primer_bloque, extension):
         os.remove(ruta_final)
         raise ValueError("El archivo ensamblado no es un video válido.")
 
-    # Limpiar directorio de chunks
+    # borra la carpeta de chunks, ya no se necesita
     import shutil
     shutil.rmtree(_dir_chunks(procesamiento_id), ignore_errors=True)
 
@@ -210,7 +211,9 @@ def _get_estado_id(db: Session, nombre: str) -> int:
 
 
 def tarea_procesar_video(procesamiento_id: int, nombre_archivo: str, usuario_id: int):
-    # Dispara el procesamiento en Modal (GPU remota); el resultado llega luego por callback.
+    # dispara el procesamiento en Modal (GPU remota), aca no se procesa nada
+    # le pasamos una url firmada pa que Modal baje el video, el resultado cae despues por el callback
+    # si el disparo falla dejamos el procesamiento en estado error
     db: Session = SessionLocal()
     procesamiento = None
     try:

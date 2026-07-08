@@ -9,6 +9,7 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 class Base(DeclarativeBase):
     pass
 
+# abre una sesion de BD por request y la cierra al terminar, se inyecta con Depends
 def get_db():
     db = SessionLocal()
     try:

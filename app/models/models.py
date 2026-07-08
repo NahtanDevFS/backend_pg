@@ -115,9 +115,9 @@ class Usuario(Base):
     updated_by: Mapped[Optional[int]] = mapped_column(ForeignKey("usuario.id"), nullable=True)
 
     rol: Mapped["Rol"] = relationship(back_populates="usuarios", foreign_keys="[Usuario.rol_id]")
-    # cultivos_creados: campos de cultivo donde este usuario figura como creador (auditoría)
+    # cultivos_creados: los campos donde este usuario figura como creador (solo auditoria)
     cultivos_creados: Mapped[List["CampoCultivo"]] = relationship(back_populates="creador", foreign_keys="[CampoCultivo.usuario_id]")
-    # cultivos_asignados: campos de cultivo a los que tiene acceso como operador
+    # cultivos_asignados: los campos a los que entra como operador
     cultivos_asignados: Mapped[List["CampoCultivoOperador"]] = relationship(back_populates="operador", foreign_keys="[CampoCultivoOperador.usuario_id]")
 
 class Departamento(Base):
@@ -154,11 +154,11 @@ class CampoCultivo(Base):
     __tablename__ = "campo_cultivo"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    # usuario_id: auditoría quién creó el campo de cultivo
+    # usuario_id: quien creo el campo, solo pa auditoria (el acceso de operadores va en campo_cultivo_operador)
     usuario_id: Mapped[int] = mapped_column(ForeignKey("usuario.id", ondelete="CASCADE"), nullable=False)
     nombre: Mapped[str] = mapped_column(String(150), nullable=False)
     municipio_id: Mapped[int] = mapped_column(ForeignKey("municipio.id"), nullable=False)
-    # ubicacion: dirección/referencia libre dentro del municipio (sector, parcela, km). Opcional.
+    # ubicacion: direccion o referencia libre dentro del municipio (sector, parcela, km), opcional
     ubicacion: Mapped[Optional[str]] = mapped_column(String(255))
     hectareas: Mapped[Optional[float]] = mapped_column(Numeric(8, 2))
     total_surcos: Mapped[int] = mapped_column(Integer, nullable=False)

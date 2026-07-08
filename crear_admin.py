@@ -3,7 +3,7 @@ from app.core.database import SessionLocal
 from app.core.security import get_password_hash, validar_password
 from app.models.models import Usuario, Rol
 
-# Crea un usuario administrador pidiendo credenciales de forma interactiva.
+# crea un usuario admin pidiendo las credenciales a mano cuando lo corres
 
 db = SessionLocal()
 
@@ -42,7 +42,7 @@ try:
     db.commit()
     db.refresh(admin)
 
-    # El admin se referencia a sí mismo en created_by
+    # el admin se apunta a si mismo en created_by
     admin.created_by = admin.id
     db.commit()
 

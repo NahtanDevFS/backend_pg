@@ -6,7 +6,7 @@ from typing import Optional, List
 class CampoCultivoBase(BaseModel):
     nombre: str = Field(..., min_length=1, max_length=150)
     municipio_id: int = Field(..., gt=0)
-    # ubicacion: dirección/referencia libre dentro del municipio (opcional)
+    # ubicacion: direccion o referencia libre dentro del municipio (opcional)
     ubicacion: Optional[str] = Field(default=None, max_length=255)
     hectareas: Optional[float] = Field(default=None, gt=0)
     total_surcos: int = Field(..., gt=0)
@@ -14,7 +14,7 @@ class CampoCultivoBase(BaseModel):
 
 
 class CampoCultivoCreate(CampoCultivoBase):
-    #Usado por el administrador para crear un campo de cultivo
+    # lo usa el admin pa crear un campo de cultivo
     pass
 
 
@@ -30,7 +30,7 @@ class CampoCultivoResponse(BaseModel):
     id: int
     nombre: str
     municipio_id: int
-    # Nombres desnormalizados resueltos en el router (municipio -> departamento).
+    # nombres desnormalizados que resuelve el router (municipio -> departamento)
     municipio_nombre: str
     departamento_id: int
     departamento_nombre: str
@@ -44,14 +44,14 @@ class CampoCultivoResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-# Asignación de operadores
+# asignacion de operadores
 
 class AsignarOperadorRequest(BaseModel):
     usuario_id: int
 
 
 class OperadorAsignadoResponse(BaseModel):
-    #Operador asignado a un campo de cultivo, con datos básicos para mostrar en la UI
+    # operador asignado a un campo, con lo basico pa mostrarlo en la UI
     id: int # id del registro campo_cultivo_operador
     usuario_id: int
     nombre: str # nombre del usuario se resuelve en el router

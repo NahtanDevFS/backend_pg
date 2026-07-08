@@ -18,15 +18,16 @@ from app.core.rate_limit_login import (
 router = APIRouter(tags=["Autenticación"])
 
 
+# saca la IP real del cliente mirando X-Forwarded-For, por si hay un proxy/ngrok en medio
 def _obtener_ip_cliente(request: Request) -> str:
-
     forwarded = request.headers.get("x-forwarded-for")
     if forwarded:
-        # X-Forwarded-For puede traer una cadena "cliente, proxy1, proxy2"
+        # puede venir como "cliente, proxy1, proxy2", nos quedamos con el primero
         return forwarded.split(",")[0].strip()
     return request.client.host if request.client else "desconocida"
 
 
+# login: primero revisa que no este bloqueado por muchos intentos, valida las credenciales y devuelve el token
 @router.post("/login")
 def login(
     request: Request,
@@ -58,7 +59,7 @@ def login(
             headers={"Retry-After": str(segundos_restantes)},
         )
 
-    # Búsqueda case-insensitive del usuario, consistente con el rate-limit ya normalizado.
+    # busca el usuario sin importar mayus/minus, igual que como ya normalizamos pal rate-limit
     usuario = db.query(models.Usuario).filter(
         func.lower(models.Usuario.nombre) == identificador_usuario,
         models.Usuario.activo == True,
@@ -81,7 +82,7 @@ def login(
         )
 
         if intentos_restantes_usuario == 0 or verificar_bloqueo(ip_cliente, namespace="ip") is not None:
-            # Este intento activó el bloqueo (por cuenta o por IP)
+            # con este intento se activo el bloqueo (por cuenta o por IP)
             segundos = verificar_bloqueo(identificador_usuario, namespace="usuario") \
                 or verificar_bloqueo(ip_cliente, namespace="ip") \
                 or BLOQUEO_USUARIO_SEGUNDOS
@@ -108,6 +109,7 @@ def login(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    # credenciales ok, borramos los contadores de intentos y damos el token
     limpiar_intentos(identificador_usuario, namespace="usuario")
     limpiar_intentos(ip_cliente, namespace="ip")
     access_token = crear_token_acceso(data={"sub": str(usuario.id)})

@@ -18,14 +18,14 @@ class UsuarioUpdate(BaseModel):
 
 
 class UsuarioEdit(BaseModel):
-    #Usado por el admin para editar nombre, rol y/o restablecer contraseña
+    # lo usa el admin pa editar nombre, rol y/o resetear la contraseña
     nombre: Optional[str] = None
     rol_id: Optional[int] = None
     password: Optional[str] = None
 
 
 class CambiarPasswordPropiaRequest(BaseModel):
-    #Usado por cualquier usuario para cambiar su propia contraseña.
+    # lo usa cualquier usuario pa cambiar su propia contraseña
     password_actual: str
     password_nueva: str
 

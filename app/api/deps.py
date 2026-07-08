@@ -16,6 +16,7 @@ def obtener_usuario_actual(
     token: str = Depends(oauth2_scheme),
     db: Session = Depends(get_db)
 ) -> models.Usuario:
+    # saca el usuario del token JWT, tiene que existir y seguir activo
     credenciales_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="No se pudieron validar las credenciales",
@@ -40,6 +41,7 @@ def obtener_usuario_actual(
     return usuario
 
 
+# solo deja pasar si el usuario es Administrador
 def requiere_admin(usuario_actual: models.Usuario = Depends(obtener_usuario_actual)) -> models.Usuario:
     if usuario_actual.rol.nombre != ROL_ADMINISTRADOR:
         raise HTTPException(
@@ -49,6 +51,7 @@ def requiere_admin(usuario_actual: models.Usuario = Depends(obtener_usuario_actu
     return usuario_actual
 
 
+# deja pasar a operadores y tambien admins
 def requiere_operador(usuario_actual: models.Usuario = Depends(obtener_usuario_actual)) -> models.Usuario:
     if usuario_actual.rol.nombre not in (ROL_ADMINISTRADOR, ROL_OPERADOR):
         raise HTTPException(

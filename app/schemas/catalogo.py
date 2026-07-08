@@ -45,10 +45,10 @@ class MunicipioResponse(BaseModel):
     departamento_id: int
     model_config = ConfigDict(from_attributes=True)
 
-#Gestión de catálogo de melones (admin)
+# gestion del catalogo de melones (admin)
 
 class CalibreAdminResponse(BaseModel):
-    #Calibre con su estado activo, para la vista de gestión del admin.
+    # calibre con su estado activo, pa la vista de gestion del admin
     id: int
     nombre: str
     descripcion: str | None = None
@@ -70,7 +70,7 @@ class CalibreUpdate(BaseModel):
     orden: int = 0
 
 class VariedadAdminResponse(BaseModel):
-    #Variedad con su estado activo, para la vista de gestión del admin.
+    # variedad con su estado activo, pa la vista de gestion del admin
     id: int
     nombre: str
     descripcion: str | None = None
@@ -89,7 +89,7 @@ class VariedadUpdate(BaseModel):
     descripcion: str | None = Field(None, max_length=2000)
 
 class CalibreDeVariedadResponse(BaseModel):
-    # Un calibre en el contexto de una variedad: si está asignado y su historial en ella.
+    # un calibre pero en el contexto de una variedad: si esta asignado y su historial en ella
     calibre_id: int
     nombre: str
     descripcion: str | None = None

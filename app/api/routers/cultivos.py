@@ -10,10 +10,10 @@ from app.api.deps import requiere_admin, requiere_operador
 router = APIRouter(prefix="/cultivos", tags=["Cultivos"])
 
 
-#Helpers
+# helpers
 
 def _to_response(cultivo: CampoCultivo) -> schemas.CampoCultivoResponse:
-    # Arma el response aplanando municipio -> departamento.
+    # arma el response aplanando municipio -> departamento pa que el front lo tenga masticado
     muni = cultivo.municipio
     depto = muni.departamento
     return schemas.CampoCultivoResponse(
@@ -33,7 +33,7 @@ def _to_response(cultivo: CampoCultivo) -> schemas.CampoCultivoResponse:
 
 
 def _verificar_municipio(municipio_id: int, db: Session):
-    #Lanza 404 si el municipio no existe o está inactivo
+    # tira 404 si el municipio no existe o esta inactivo
     existe = db.query(Municipio).filter(
         Municipio.id == municipio_id,
         Municipio.activo == True
@@ -52,7 +52,7 @@ def _get_cultivo_activo(campo_cultivo_id: int, db: Session) -> CampoCultivo:
 
 
 def _verificar_acceso_operador(campo_cultivo_id: int, usuario_id: int, db: Session):
-    """Lanza 403 si el operador no tiene acceso asignado al campo de cultivo."""
+    # tira 403 si el operador no esta asignado a ese campo de cultivo
     acceso = db.query(CampoCultivoOperador).filter(
         CampoCultivoOperador.campo_cultivo_id == campo_cultivo_id,
         CampoCultivoOperador.usuario_id == usuario_id,
@@ -65,14 +65,14 @@ def _verificar_acceso_operador(campo_cultivo_id: int, usuario_id: int, db: Sessi
         )
 
 
-#Operador: sus campos de cultivo asignados
+# operador: los campos que le asignaron
 
 @router.get("/", response_model=List[schemas.CampoCultivoResponse])
 def listar_cultivos_del_operador(
     db: Session = Depends(get_db),
     usuario: Usuario = Depends(requiere_operador)
 ):
-    #Devuelve los campos de cultivo a los que el operador fue asignado por el admin
+    # devuelve los campos que el admin le asigno a este operador
     cultivos = cultivo_service.obtener_cultivos_del_operador(db=db, usuario_id=usuario.id)
     return [_to_response(c) for c in cultivos]
 
@@ -83,12 +83,12 @@ def obtener_cultivo_operador(
     db: Session = Depends(get_db),
     usuario: Usuario = Depends(requiere_operador)
 ):
-    #Obtiene un campo de cultivo verificando que el operador tenga acceso
+    # trae un campo chequeando que el operador tenga acceso
     _verificar_acceso_operador(campo_cultivo_id, usuario.id, db)
     return _to_response(_get_cultivo_activo(campo_cultivo_id, db))
 
 
-#Administrador: gestión completa
+# administrador: gestion completa
 
 @router.post("/", response_model=schemas.CampoCultivoResponse, status_code=status.HTTP_201_CREATED)
 def crear_cultivo(
@@ -96,7 +96,7 @@ def crear_cultivo(
     db: Session = Depends(get_db),
     admin: Usuario = Depends(requiere_admin)
 ):
-    #Crea un campo de cultivo. Los operadores se asignan después con POST /{id}/operadores
+    # crea el campo de cultivo, los operadores se asignan aparte despues con POST /{id}/operadores
     _verificar_municipio(cultivo_in.municipio_id, db)
     cultivo = cultivo_service.crear_cultivo(db=db, cultivo_in=cultivo_in, creado_por=admin.id)
     return _to_response(cultivo)
@@ -109,7 +109,7 @@ def listar_todos_los_cultivos(
     db: Session = Depends(get_db),
     _: Usuario = Depends(requiere_admin)
 ):
-    # Lista campos de cultivo; incluir_inactivos añade los desactivados y usuario_id filtra por operador.
+    # lista los campos; con incluir_inactivos tambien trae los desactivados y usuario_id filtra por operador
     if usuario_id:
         cultivos = cultivo_service.obtener_cultivos_del_operador(db=db, usuario_id=usuario_id)
     else:
@@ -144,14 +144,15 @@ def desactivar_cultivo(
     db: Session = Depends(get_db),
     admin: Usuario = Depends(requiere_admin)
 ):
-    # Soft-delete del campo y, en cascada, sus operadores, conteos, procesamientos y clasificaciones activos.
+    # baja logica del campo y en cascada baja todo lo suyo que este activo: operadores, conteos, videos y clasificaciones
+    # cada cosa que apagamos aca queda marcada con desactivado_por_campo_cultivo pa poder revivirla despues igualita
     from app.models.models import (
         CampoCultivoOperador, Conteo, ProcesamientoVideo, ClasificacionCalibreConteo
     )
 
     cultivo = _get_cultivo_activo(campo_cultivo_id, db)
 
-    #Operadores asignados activos
+    # los operadores asignados que esten activos
     db.query(CampoCultivoOperador).filter(
         CampoCultivoOperador.campo_cultivo_id == campo_cultivo_id,
         CampoCultivoOperador.activo == True,
@@ -160,7 +161,7 @@ def desactivar_cultivo(
         synchronize_session=False,
     )
 
-    #Conteos activos del campo
+    # los conteos activos del campo
     conteos = db.query(Conteo).filter(
         Conteo.campo_cultivo_id == campo_cultivo_id,
         Conteo.activo == True,
@@ -168,7 +169,7 @@ def desactivar_cultivo(
     conteo_ids = [c.id for c in conteos]
 
     if conteo_ids:
-        #Procesamientos activos de esos conteos
+        # los videos activos de esos conteos
         db.query(ProcesamientoVideo).filter(
             ProcesamientoVideo.conteo_id.in_(conteo_ids),
             ProcesamientoVideo.activo == True,
@@ -177,7 +178,7 @@ def desactivar_cultivo(
             synchronize_session=False,
         )
 
-        #Clasificaciones por calibre activas de esos conteos
+        # las clasificaciones por calibre activas de esos conteos
         db.query(ClasificacionCalibreConteo).filter(
             ClasificacionCalibreConteo.conteo_id.in_(conteo_ids),
             ClasificacionCalibreConteo.activo == True,
@@ -186,7 +187,7 @@ def desactivar_cultivo(
             synchronize_session=False,
         )
 
-        #los conteos mismos
+        # y los conteos mismos
         db.query(Conteo).filter(
             Conteo.id.in_(conteo_ids),
         ).update(
@@ -194,7 +195,7 @@ def desactivar_cultivo(
             synchronize_session=False,
         )
 
-    #finalmente el campo de cultivo
+    # por ultimo el campo de cultivo
     cultivo.activo = False
     cultivo.updated_by = admin.id
 
@@ -208,7 +209,7 @@ def reactivar_cultivo(
     db: Session = Depends(get_db),
     admin: Usuario = Depends(requiere_admin)
 ):
-    # Reactiva el campo y restaura en cascada solo lo que fue apagado junto con él.
+    # reactiva el campo y revive en cascada solo lo que se apago junto con el (lo marcado con el flag)
     from app.models.models import (
         CampoCultivoOperador, Conteo, ProcesamientoVideo, ClasificacionCalibreConteo
     )
@@ -223,7 +224,7 @@ def reactivar_cultivo(
             detail="Campo de cultivo no encontrado o ya está activo."
         )
 
-    #Reactivar solo los registros que fueron apagados por la cascada del campo
+    # revivimos solo lo que se apago por la cascada del campo, lo que ya estaba inactivo de antes se queda igual
     db.query(CampoCultivoOperador).filter(
         CampoCultivoOperador.campo_cultivo_id == campo_cultivo_id,
         CampoCultivoOperador.desactivado_por_campo_cultivo == True,
@@ -269,7 +270,7 @@ def reactivar_cultivo(
     return {"mensaje": "Campo de cultivo y su información asociada reactivados correctamente."}
 
 
-#Gestión de operadores asignados (admin)
+# gestion de operadores asignados (admin)
 
 @router.get(
     "/{campo_cultivo_id}/operadores",
@@ -280,7 +281,7 @@ def listar_operadores_asignados(
     db: Session = Depends(get_db),
     _: Usuario = Depends(requiere_admin)
 ):
-    #Lista los operadores actualmente asignados a un campo de cultivo
+    # lista los operadores que ahorita estan asignados a un campo
     _get_cultivo_activo(campo_cultivo_id, db)
     asignaciones = cultivo_service.listar_operadores_del_cultivo(db=db, campo_cultivo_id=campo_cultivo_id)
     return [
@@ -306,7 +307,7 @@ def asignar_operador(
     db: Session = Depends(get_db),
     admin: Usuario = Depends(requiere_admin)
 ):
-    #Asigna un operador a un campo de cultivo
+    # asigna un operador a un campo, tiene que ser rol Operador
     _get_cultivo_activo(campo_cultivo_id, db)
 
     operador = db.query(Usuario).filter(
@@ -340,7 +341,7 @@ def quitar_operador(
     db: Session = Depends(get_db),
     admin: Usuario = Depends(requiere_admin)
 ):
-    #Quita el acceso de un operador a un campo de cultivo
+    # le quita el acceso a un operador de un campo
     _get_cultivo_activo(campo_cultivo_id, db)
     eliminado = cultivo_service.quitar_operador(
         db=db,

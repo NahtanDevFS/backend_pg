@@ -45,7 +45,7 @@ def cambiar_password_propia(
     db: Session = Depends(get_db),
     usuario_actual: Usuario = Depends(obtener_usuario_actual),
 ):
-    # El usuario cambia su propia contraseña acreditando la actual; limpia debe_cambiar_password.
+    # el usuario cambia su propia contraseña, tiene que poner la actual; al hacerlo se le quita el aviso de debe_cambiar_password
     if not verify_password(datos.password_actual, usuario_actual.password_hash):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -76,7 +76,7 @@ def editar_usuario(
         raise HTTPException(status_code=404, detail="Usuario no encontrado.")
 
     if datos.nombre is not None:
-        # Normaliza y verifica el nombre case-insensitive (igual que creación y login).
+        # limpiamos y validamos el nombre sin importar mayus/minus (igual que al crear y al login)
         nombre = datos.nombre.strip()
         if not nombre:
             raise HTTPException(status_code=400, detail="El nombre de usuario no puede estar vacío.")
@@ -90,7 +90,8 @@ def editar_usuario(
 
     if datos.rol_id is not None:
         rol_admin = db.query(Rol).filter(Rol.nombre == "Administrador").first()
-        # Al quitar el rol Administrador, impide dejar al sistema sin ningún admin activo.
+        # ojo: si le quitamos el rol admin al ultimo admin, el sistema quedaria sin nadie que pueda gestionar
+        # y nadie podria revertirlo sin meterse a la BD, asi que no lo dejamos
         if (
             rol_admin
             and usuario.rol_id == rol_admin.id
@@ -114,14 +115,14 @@ def editar_usuario(
     if datos.password is not None:
         validar_password(datos.password)
         usuario.password_hash = get_password_hash(datos.password)
-        # Fuerza el aviso de cambio solo si el admin le puso la contraseña a otro usuario.
+        # solo le forzamos el aviso de cambiar si el admin le puso la contraseña a otro (no a si mismo)
         usuario.debe_cambiar_password = (admin.id != usuario.id)
 
     usuario.updated_by = admin.id
     try:
         db.commit()
     except IntegrityError:
-        # Carrera contra la restricción UNIQUE: responde amigable en vez de un 500.
+        # se colaron dos con el mismo nombre a la vez, respondemos bonito en vez de 500
         db.rollback()
         raise HTTPException(status_code=400, detail="Ya existe un usuario con ese nombre.")
     db.refresh(usuario)
@@ -134,6 +135,7 @@ def desactivar_usuario(
         db: Session = Depends(get_db),
         admin: Usuario = Depends(requiere_admin)
 ):
+    # no te podes desactivar a vos mismo, sino te quedarias afuera
     if usuario_id == admin.id:
         raise HTTPException(status_code=400, detail="No puedes desactivar tu propia cuenta.")
 

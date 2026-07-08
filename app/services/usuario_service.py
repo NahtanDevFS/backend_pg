@@ -8,7 +8,7 @@ from app.core.security import get_password_hash, validar_password
 
 
 def crear_usuario(db: Session, usuario_in: schemas.UsuarioCreate, creado_por: int) -> Usuario:
-    # Normaliza y verifica el nombre case-insensitive (consistente con el login).
+    # limpiamos el nombre y validamos que no exista ya, sin importar mayus/minus (igual que el login)
     nombre = usuario_in.nombre.strip()
     if not nombre:
         raise HTTPException(
@@ -31,14 +31,14 @@ def crear_usuario(db: Session, usuario_in: schemas.UsuarioCreate, creado_por: in
         rol_id=usuario_in.rol_id,
         nombre=nombre,
         password_hash=get_password_hash(usuario_in.password),
-        debe_cambiar_password=True,  # contraseña puesta por el admin
+        debe_cambiar_password=True,  # la contraseña la puso el admin, que la cambie el dueño
         created_by=creado_por
     )
     db.add(nuevo)
     try:
         db.commit()
     except IntegrityError:
-        # Carrera contra la restricción UNIQUE: responde amigable en vez de un 500.
+        # se colaron dos con el mismo nombre a la vez y Postgres tumbo la segunda por el UNIQUE, respondemos bonito
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

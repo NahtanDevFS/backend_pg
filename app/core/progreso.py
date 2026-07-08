@@ -8,10 +8,10 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-# TTL de la clave de progreso en Redis (30 min); se autolimpia si nunca llega el callback final.
+# TTL de la clave en redis (30 min), por si nunca llega el callback final que la borra
 _TTL_SEGUNDOS = 30 * 60
 
-# Cliente Redis único por proceso; None (no-op silencioso) si no hay REDIS_URL configurada.
+# un solo cliente redis por proceso, si no hay REDIS_URL queda en None y todo el modulo no hace nada
 _cliente: Optional[redis.Redis] = None
 
 if settings.REDIS_URL:
@@ -32,7 +32,7 @@ def _clave(procesamiento_id: int) -> str:
 
 
 def set_progreso(procesamiento_id: int, progreso_pct: int, conteo_parcial: int) -> None:
-    #Guarda el progreso actual. Best-effort: nunca lanza
+    # guarda el progreso actual, best-effort, nunca revienta
     if _cliente is None:
         return
     try:
@@ -47,7 +47,7 @@ def set_progreso(procesamiento_id: int, progreso_pct: int, conteo_parcial: int) 
 
 
 def get_progreso(procesamiento_id: int) -> Optional[dict]:
-    #Lee el progreso actual. Devuelve None si no hay dato o Redis falla
+    # lee el progreso, devuelve None si no hay nada o si redis falla
     if _cliente is None:
         return None
     try:
@@ -63,7 +63,7 @@ def get_progreso(procesamiento_id: int) -> Optional[dict]:
 
 
 def limpiar_progreso(procesamiento_id: int) -> None:
-    #Borra el progreso. Se llama cuando llega el resultado final o un error. Best-effort: nunca lanza
+    # borra el progreso, se llama cuando llega el resultado final o un error, best-effort
     if _cliente is None:
         return
     try:

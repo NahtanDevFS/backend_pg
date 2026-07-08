@@ -34,7 +34,7 @@ class ConteoResponse(BaseModel):
     activo: bool
     created_at: datetime
     created_by: int
-    # nombre desnormalizado del operador que creó el conteo (relación 'creador')
+    # nombre del operador que creo el conteo, desnormalizado (sale de la relacion 'creador')
     operador_nombre: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
@@ -42,7 +42,7 @@ class ConteoResponse(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _extraer_nombres(cls, data: Any) -> Any:
-        # Inyecta los nombres desnormalizados (variedad, cultivo, creador, estado) desde las relaciones ORM.
+        # mete los nombres desnormalizados (variedad, cultivo, creador, estado) leyendo las relaciones ORM
         variedad = getattr(data, "variedad", None)
         if variedad is not None:
             try:
@@ -72,7 +72,7 @@ class ConteoResponse(BaseModel):
     @computed_field
     @property
     def nivel_confiabilidad(self) -> Optional[str]:
-        #Nivel derivado de la sesión completa. None si ningún video tiene métricas.
+        # nivel de la sesion completa, None si ningun video tiene metricas
         return derivar_nivel(
             self.promedio_confianza_sesion,
             self.porcentaje_baja_confianza_sesion,
@@ -88,11 +88,11 @@ class ComparacionAnteriorResponse(BaseModel):
     hay_historial: bool
 
 class HistorialPaginadoResponse(BaseModel):
-    # Respuesta paginada del historial: la tanda de conteos + el total global.
+    # respuesta paginada del historial: la tanda de conteos + el total global pa que el front sepa cuantas paginas hay
     items: List[ConteoResponse]
     total: int
 
 
 class CambiarEstadoConteoRequest(BaseModel):
-    #El admin puede mover el conteo a cualquier estado por su id (libre).
+    # el admin puede mover el conteo a cualquier estado por su id
     estado_id: int

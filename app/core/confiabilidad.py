@@ -1,7 +1,7 @@
 from typing import Optional
 
-# Umbrales de confiabilidad (deben cumplirse ambas condiciones; si no, baja de categoría):
-#   Alto: prom>=0.75 y baja<=0.15 · Moderado: prom>=0.60 y baja<=0.30 · Bajo: resto
+# umbrales de confiabilidad, se tienen que cumplir las dos condiciones o baja de categoria (somos conservadores):
+#   alto: prom>=0.75 y baja<=0.15 · moderado: prom>=0.60 y baja<=0.30 · bajo: lo demas
 UMBRAL_ALTO_PROMEDIO = 0.75
 UMBRAL_ALTO_BAJA     = 0.15
 UMBRAL_MOD_PROMEDIO  = 0.60
@@ -12,7 +12,7 @@ def derivar_nivel(
     promedio_confianza: Optional[float],
     porcentaje_baja_confianza: Optional[float],
 ) -> Optional[str]:
-    """Deriva el nivel ('alto'/'moderado'/'bajo') desde las métricas; None si falta alguna."""
+    # saca el nivel (alto/moderado/bajo) segun las metricas, None si falta alguna (video sin detecciones)
     if promedio_confianza is None or porcentaje_baja_confianza is None:
         return None
 

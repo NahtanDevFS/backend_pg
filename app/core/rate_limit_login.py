@@ -7,6 +7,8 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
+# bloqueo temporal de login contra fuerza bruta, cuenta intentos fallidos por usuario y por IP en redis
+# si no hay redis todo esto no hace nada y el login funciona normal
 MAX_INTENTOS_USUARIO = 5
 BLOQUEO_USUARIO_SEGUNDOS = 30
 
@@ -41,6 +43,7 @@ def _clave_bloqueo(namespace: str, identificador: str) -> str:
 def verificar_bloqueo(
     identificador: str, namespace: str = "usuario"
 ) -> Optional[int]:
+    # devuelve cuantos segundos le quedan de bloqueo, o None si no esta bloqueado
     if _cliente is None:
         return None
     try:
@@ -62,6 +65,7 @@ def registrar_intento_fallido(
     max_intentos: int = MAX_INTENTOS_USUARIO,
     bloqueo_segundos: int = BLOQUEO_USUARIO_SEGUNDOS,
 ) -> Optional[int]:
+    # suma un intento fallido y bloquea si se paso del maximo, devuelve cuantos intentos quedan (0 = ya bloqueado)
     if _cliente is None:
         return None
     try:
@@ -85,6 +89,7 @@ def registrar_intento_fallido(
 
 
 def limpiar_intentos(identificador: str, namespace: str = "usuario") -> None:
+    # borra el contador y el bloqueo, se llama cuando el login salio bien
     if _cliente is None:
         return
     try:

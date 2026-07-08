@@ -6,7 +6,7 @@ from app.api.routers import usuarios, auth, cultivos, procesamientos, conteos, c
 
 app = FastAPI(title=settings.PROJECT_NAME)
 
-# Orígenes CORS permitidos: web en desarrollo/producción y app móvil.
+# origenes permitidos: la web y la app movil
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
