@@ -285,7 +285,7 @@ def descargar_video_original(
     token: str,
     db: Session = Depends(get_db),
 ):
-    # descarga el video original con el token firmado (lo usa Modal), no lleva auth de usuario porque el token ES la credencial
+    # descarga el video original con el token firmado (lo usa Modal), no lleva auth de usuario porque el token es la credencial
     if not validar_token_descarga(procesamiento_id, token):
         raise HTTPException(status_code=403, detail="Token inválido o expirado.")
 
@@ -390,7 +390,7 @@ def registrar_procesamiento(
 @router.get("/conteo/{conteo_id}", response_model=List[ProcesamientoResponse])
 def listar_por_conteo(
     conteo_id: int,
-    db:      Session = Depends(get_db),
+    db: Session = Depends(get_db),
     usuario: Usuario = Depends(requiere_operador),
 ):
     conteo = db.query(Conteo).filter(
@@ -618,7 +618,7 @@ async def subir_video(
     procesamiento_id: int,
     background_tasks: BackgroundTasks,
     video: UploadFile = File(...),
-    db:      Session  = Depends(get_db),
+    db: Session  = Depends(get_db),
     usuario: Usuario  = Depends(requiere_operador)
 ):
     proc = _get_procesamiento_del_usuario(procesamiento_id, usuario, db)
@@ -687,7 +687,7 @@ def iniciar_subida_chunks(
     return proc
 
 
-# recibe un pedazo del video en base64, y cuando llega el ultimo ensambla todo y dispara Modal
+# recibe un pedazo del video en base64, y cuando llega el ultimo ensambla y dispara Modal
 @router.post("/{procesamiento_id}/video/chunk")
 async def subir_chunk(
     procesamiento_id: int,
@@ -865,6 +865,20 @@ def ajustar_conteo(
 
     if not proc.resultado:
         raise HTTPException(status_code=400, detail="Este procesamiento aún no tiene resultado de IA.")
+
+    conteo_check = db.query(Conteo).filter(Conteo.id == proc.conteo_id).first()
+    if conteo_check is not None:
+        estado_conteo = db.query(EstadoConteo).filter(
+            EstadoConteo.id == conteo_check.estado_id
+        ).first()
+        if estado_conteo and estado_conteo.nombre == "completado":
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "No se puede ajustar un procesamiento de un conteo ya completado. "
+                    "Contacta a un administrador para reabrir el conteo si necesitas corregirlo."
+                ),
+            )
 
     proc.resultado.conteo_ajustado = datos.conteo_ajustado
     proc.resultado.observaciones_ajuste = datos.observaciones

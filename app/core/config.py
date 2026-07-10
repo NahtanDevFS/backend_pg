@@ -17,13 +17,13 @@ class Settings:
 
     STORAGE_PATH: str = os.getenv("STORAGE_PATH", "./uploads")
 
-    # secreto con que Modal firma su callback de resultados (Modal -> backend)
+    # secreto con que Modal firma su callback de resultados (Modal a backend)
     MODAL_CALLBACK_SECRET: str = os.environ.get("MODAL_CALLBACK_SECRET")
 
-    # secreto con que el backend firma el disparo de trabajos (backend -> Modal)
+    # secreto con que el backend firma el disparo de modal
     MODAL_TRIGGER_SECRET: str = os.environ.get("MODAL_TRIGGER_SECRET")
 
-    # url publica del backend, la usamos para firmar los links de descarga del video
+    # url publica del backend para firmar los links de descarga del video
     PUBLIC_BASE_URL: str = os.environ.get("PUBLIC_BASE_URL", "http://localhost:8000")
 
     MODAL_ENDPOINT_URL: str = os.environ.get("MODAL_ENDPOINT_URL", "")
@@ -38,7 +38,7 @@ class Settings:
     ]
 
     def validar(self):
-        # revienta al arrancar si falta algun secreto obligatorio, mejor eso que fallar despues en produccion
+        # revienta al arrancar si falta algun secreto obligatorio
         faltantes = []
         if not self.DATABASE_URL:
             faltantes.append("DATABASE_URL")

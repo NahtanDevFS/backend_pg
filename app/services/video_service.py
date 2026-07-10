@@ -34,8 +34,7 @@ def _validar_firma_video(primer_chunk: bytes, extension: str) -> bool:
     return False
 
 
-# subida clasica de un solo golpe (legacy), la app hoy usa la de chunks
-
+# subida de un solo golpe (legacy)
 async def guardar_video_local(file: UploadFile, procesamiento_id: int) -> str:
     # guarda el video en disco validando extension, magic bytes y tamaño
     # el nombre lo arma el server con puros datos de aca pa que no metan path traversal
@@ -211,8 +210,7 @@ def _get_estado_id(db: Session, nombre: str) -> int:
 
 
 def tarea_procesar_video(procesamiento_id: int, nombre_archivo: str, usuario_id: int):
-    # dispara el procesamiento en Modal (GPU remota), aca no se procesa nada
-    # le pasamos una url firmada pa que Modal baje el video, el resultado cae despues por el callback
+    # dispara el procesamiento en Modal (GPU remota) le pasamos una url firmada pa que Modal baje el video, el resultado cae despues por el callback
     # si el disparo falla dejamos el procesamiento en estado error
     db: Session = SessionLocal()
     procesamiento = None
