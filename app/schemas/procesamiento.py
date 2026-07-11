@@ -33,7 +33,6 @@ class ProcesamientoResponse(BaseModel):
     conteo_id: int
     usuario_id: int
     estado_id: int
-    # estado_nombre: nombre legible del estado, resuelto desde la relación ORM
     estado_nombre: Optional[str] = None
     # conteo_estado_nombre estado del conteo padre (en_progreso, completado ...) permite al cliente bloquear acciones (anular) sobre conteos ya completados
     conteo_estado_nombre: Optional[str] = None
@@ -51,14 +50,14 @@ class ProcesamientoResponse(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _extraer_estado_nombre(cls, data: Any) -> Any:
-        # Inyecta estado_nombre desde la relación ORM 'estado'.
+        # Inyecta estado_nombre desde la relación ORM estado
         estado = getattr(data, "estado", None)
         if estado is not None:
             try:
                 object.__setattr__(data, "estado_nombre", estado.nombre)
             except Exception:
                 pass
-        # Inyecta el estado del conteo padre desde la relación ORM 'conteo'.
+        # Inyecta el estado del conteo padre desde la relación ORM conteo
         conteo = getattr(data, "conteo", None)
         estado_conteo = getattr(conteo, "estado", None) if conteo is not None else None
         if estado_conteo is not None:

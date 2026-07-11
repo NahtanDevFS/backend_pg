@@ -6,7 +6,6 @@ from typing import Optional, List
 class CampoCultivoBase(BaseModel):
     nombre: str = Field(..., min_length=1, max_length=150)
     municipio_id: int = Field(..., gt=0)
-    # ubicacion: direccion o referencia libre dentro del municipio (opcional)
     ubicacion: Optional[str] = Field(default=None, max_length=255)
     hectareas: Optional[float] = Field(default=None, gt=0)
     total_surcos: int = Field(..., gt=0)
@@ -54,7 +53,7 @@ class OperadorAsignadoResponse(BaseModel):
     # operador asignado a un campo, con lo basico pa mostrarlo en la UI
     id: int # id del registro campo_cultivo_operador
     usuario_id: int
-    nombre: str # nombre del usuario se resuelve en el router
+    nombre: str
     activo: bool
     created_at: datetime
 

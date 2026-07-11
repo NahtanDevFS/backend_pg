@@ -3,7 +3,7 @@ from app.core.database import SessionLocal
 from app.core.security import get_password_hash, validar_password
 from app.models.models import Usuario, Rol
 
-# crea un usuario admin pidiendo las credenciales a mano cuando lo corres
+# crea un usuario admin pidiendo las credenciales a mano al correrlo
 
 db = SessionLocal()
 

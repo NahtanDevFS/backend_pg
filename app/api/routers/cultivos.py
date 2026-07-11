@@ -144,8 +144,7 @@ def desactivar_cultivo(
     db: Session = Depends(get_db),
     admin: Usuario = Depends(requiere_admin)
 ):
-    # baja logica del campo y en cascada baja todo lo suyo que este activo: operadores, conteos, videos y clasificaciones
-    # cada cosa que apagamos aca queda marcada con desactivado_por_campo_cultivo pa poder revivirla despues igualita
+    # baja logica del campo y en cascada baja lo suyo que este activo: operadores, conteos, videos y clasificaciones, cada cosa que apagamos aca queda marcada con desactivado_por_campo_cultivo pa poder revivirla despues igualita
     from app.models.models import (
         CampoCultivoOperador, Conteo, ProcesamientoVideo, ClasificacionCalibreConteo
     )

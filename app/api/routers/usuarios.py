@@ -45,7 +45,7 @@ def cambiar_password_propia(
     db: Session = Depends(get_db),
     usuario_actual: Usuario = Depends(obtener_usuario_actual),
 ):
-    # el usuario cambia su propia contraseña, tiene que poner la actual; al hacerlo se le quita el aviso de debe_cambiar_password
+    # el usuario cambia su propia contraseña, tiene que poner la actual, al hacerlo se le quita el aviso de debe_cambiar_password
     if not verify_password(datos.password_actual, usuario_actual.password_hash):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -90,8 +90,7 @@ def editar_usuario(
 
     if datos.rol_id is not None:
         rol_admin = db.query(Rol).filter(Rol.nombre == "Administrador").first()
-        # ojo: si le quitamos el rol admin al ultimo admin, el sistema quedaria sin nadie que pueda gestionar
-        # y nadie podria revertirlo sin meterse a la BD, asi que no lo dejamos
+        #si le quitamos el rol admin al ultimo admin, el sistema quedaria sin nadie que pueda gestionar y nadie podria revertirlo sin meterse a la BD, asi que no lo dejamos
         if (
             rol_admin
             and usuario.rol_id == rol_admin.id
@@ -135,7 +134,7 @@ def desactivar_usuario(
         db: Session = Depends(get_db),
         admin: Usuario = Depends(requiere_admin)
 ):
-    # no te podes desactivar a vos mismo, sino te quedarias afuera
+    # no permite desactivarse a si mismo, sino se quedaria afuera
     if usuario_id == admin.id:
         raise HTTPException(status_code=400, detail="No puedes desactivar tu propia cuenta.")
 

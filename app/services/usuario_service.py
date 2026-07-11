@@ -38,7 +38,7 @@ def crear_usuario(db: Session, usuario_in: schemas.UsuarioCreate, creado_por: in
     try:
         db.commit()
     except IntegrityError:
-        # se colaron dos con el mismo nombre a la vez y Postgres tumbo la segunda por el UNIQUE, respondemos bonito
+        # se colaron dos con el mismo nombre a la vez y Postgres tumbo la segunda por el unique
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

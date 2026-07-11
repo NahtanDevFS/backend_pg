@@ -86,7 +86,7 @@ def listar_calibres_admin(
     # lista todos los calibres, activos e inactivos, ordenados por 'orden'
     calibres = db.query(CalibreMelon).order_by(CalibreMelon.orden, CalibreMelon.nombre).all()
 
-    # traemos los conteos de todos los calibres de un solo con GROUP BY, pa no hacer una query por cada uno (N+1)
+    # traemos los conteos de todos los calibres de un solo con GROUP BY, pa no hacer una query por cada uno
     conteos_por_calibre = dict(
         db.query(
             ClasificacionCalibreConteo.calibre_id,
@@ -228,7 +228,7 @@ def listar_variedades_admin(
     # lista todas las variedades, activas e inactivas, ordenadas por nombre
     variedades = db.query(VariedadMelon).order_by(VariedadMelon.nombre).all()
 
-    # los conteos de todas las variedades de un solo con GROUP BY (evita el N+1)
+    # los conteos de todas las variedades de un solo con GROUP BY
     conteos_por_variedad = dict(
         db.query(Conteo.variedad_id, func.count(Conteo.id))
         .group_by(Conteo.variedad_id)
@@ -269,7 +269,6 @@ def crear_variedad(
     try:
         db.commit()
     except IntegrityError:
-        # misma carrera que en crear_calibre, ver el comentario alla
         db.rollback()
         raise HTTPException(status_code=409, detail="Ya existe una variedad con ese nombre.")
     db.refresh(variedad)

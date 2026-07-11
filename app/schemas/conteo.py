@@ -34,7 +34,6 @@ class ConteoResponse(BaseModel):
     activo: bool
     created_at: datetime
     created_by: int
-    # nombre del operador que creo el conteo, desnormalizado (sale de la relacion 'creador')
     operador_nombre: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
@@ -42,7 +41,6 @@ class ConteoResponse(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _extraer_nombres(cls, data: Any) -> Any:
-        # mete los nombres desnormalizados (variedad, cultivo, creador, estado) leyendo las relaciones ORM
         variedad = getattr(data, "variedad", None)
         if variedad is not None:
             try:
@@ -80,7 +78,7 @@ class ConteoResponse(BaseModel):
 
 
 class ComparacionAnteriorResponse(BaseModel):
-    """Devuelve el conteo anterior completado del mismo campo de cultivo y la variación"""
+    #Devuelve el conteo anterior completado del mismo campo de cultivo y la variación
     conteo_anterior_id: Optional[int] = None
     conteo_anterior_total: Optional[int] = None
     conteo_anterior_fecha: Optional[date] = None

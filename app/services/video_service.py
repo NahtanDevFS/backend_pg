@@ -210,8 +210,7 @@ def _get_estado_id(db: Session, nombre: str) -> int:
 
 
 def tarea_procesar_video(procesamiento_id: int, nombre_archivo: str, usuario_id: int):
-    # dispara el procesamiento en Modal (GPU remota) le pasamos una url firmada pa que Modal baje el video, el resultado cae despues por el callback
-    # si el disparo falla dejamos el procesamiento en estado error
+    # dispara el procesamiento en Modal (GPU remota) le pasamos una url firmada pa que Modal baje el video, el resultado cae despues por el callback, si el disparo falla dejamos el procesamiento en estado error
     db: Session = SessionLocal()
     procesamiento = None
     try:

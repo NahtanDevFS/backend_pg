@@ -59,7 +59,7 @@ def login(
             headers={"Retry-After": str(segundos_restantes)},
         )
 
-    # busca el usuario sin importar mayus/minus, igual que como ya normalizamos pal rate-limit
+    # busca el usuario sin importar mayus/minus, igual que como pal rate-limit
     usuario = db.query(models.Usuario).filter(
         func.lower(models.Usuario.nombre) == identificador_usuario,
         models.Usuario.activo == True,

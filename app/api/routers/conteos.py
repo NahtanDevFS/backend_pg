@@ -34,7 +34,7 @@ def _get_conteo_del_usuario(conteo_id: int, usuario: Usuario, db: Session) -> Co
 
 
 def _get_conteo_cualquiera(conteo_id: int, db: Session, incluir_inactivos: bool = False) -> Conteo:
-    """Devuelve cualquier conteo (uso admin); incluir_inactivos permite leer los desactivados."""
+    #Devuelve cualquier conteo (uso admin), incluir_inactivos permite leer los desactivados
     q = db.query(Conteo).filter(Conteo.id == conteo_id)
     if not incluir_inactivos:
         q = q.filter(Conteo.activo == True)
@@ -45,8 +45,7 @@ def _get_conteo_cualquiera(conteo_id: int, db: Session, incluir_inactivos: bool 
 
 
 def _recalcular_clasificaciones(conteo_id: int, db: Session) -> None:
-    # vuelve a repartir las cantidades extrapoladas por calibre cuando cambia el total del conteo
-    # no hace commit, de eso se encarga quien lo llama
+    # vuelve a repartir las cantidades extrapoladas por calibre cuando cambia el total del conteo, no hace commit, de eso se encarga quien lo llama
     clasificaciones = db.query(ClasificacionCalibreConteo).filter(
         ClasificacionCalibreConteo.conteo_id == conteo_id,
         ClasificacionCalibreConteo.activo == True,
@@ -204,7 +203,7 @@ def listar_conteos_por_cultivo(
     return query.order_by(Conteo.fecha_conteo.desc(), Conteo.id.desc()).offset(skip).limit(limit).all()
 
 
-# estas rutas van ANTES de /{conteo_id} o FastAPI lee "admin" como si fuera un id
+# estas rutas van antes de /{conteo_id} o FastAPI lee "admin" como si fuera un id
 
 @router.get(
     "/admin/historial",
@@ -433,7 +432,7 @@ def comparar_con_anterior(
     db: Session = Depends(get_db),
     usuario: Usuario = Depends(requiere_operador)
 ):
-    """Devuelve el conteo completado anterior del mismo campo y la variación porcentual."""
+    #Devuelve el conteo completado anterior del mismo campo y la variación porcentual
     conteo_actual = _get_conteo_del_usuario(conteo_id, usuario, db)
 
     if conteo_actual.conteo_total_acumulado == 0:
@@ -489,8 +488,7 @@ def guardar_muestreo(
 
     total_acumulado = conteo.conteo_total_acumulado
 
-    # repartimos con el metodo del residuo mayor (Hamilton) pa que la suma de los extrapolados cuadre exacto con el total
-    # si redondeamos cada calibre por separado la suma no da, por eso este metodo
+    # repartimos con el metodo del residuo mayor (Hamilton) pa que la suma de los extrapolados cuadre exacto con el total, si redondeamos cada calibre por separado la suma no da, por eso este metodo
     calculos = []
     for item in datos.items:
         calibre = db.query(CalibreMelon).filter(CalibreMelon.id == item.calibre_id).first()
@@ -523,9 +521,7 @@ def guardar_muestreo(
     for i in range(max(0, min(faltantes, len(orden)))):
         orden[i]["base"] += 1
 
-    # hacemos upsert en vez de borrar y recrear todo: actualizamos las que ya estan (reactivando si alguna quedo
-    # apagada por una cascada), insertamos los calibres nuevos y borramos solo los que ya no van
-    # asi respetamos el UNIQUE(conteo_id, calibre_id) sin el hard-delete masivo de antes
+    # hacemos upsert en vez de borrar y recrear, actualizamos las que ya estan (reactivando si alguna quedo apagada por una cascada), insertamos los calibres nuevos y borramos solo los que ya no van, asi respetamos el UNIQUE(conteo_id, calibre_id) sin el hard-delete masivo de antes
     existentes = {
         fila.calibre_id: fila
         for fila in db.query(ClasificacionCalibreConteo).filter(

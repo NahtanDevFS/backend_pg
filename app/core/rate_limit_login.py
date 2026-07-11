@@ -7,8 +7,7 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-# bloqueo temporal de login contra fuerza bruta, cuenta intentos fallidos por usuario y por IP en redis
-# si no hay redis todo esto no hace nada y el login funciona normal
+# bloqueo temporal de login contra fuerza bruta, cuenta intentos fallidos por usuario y por IP en redis, si no hay redis esto no hace nada y el login funciona normal
 MAX_INTENTOS_USUARIO = 5
 BLOQUEO_USUARIO_SEGUNDOS = 30
 

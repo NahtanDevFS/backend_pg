@@ -60,8 +60,7 @@ def _get_procesamiento_cualquiera(procesamiento_id: int, db: Session) -> Procesa
 
 
 def _recalcular_conteo(conteo_id: int, db: Session):
-    # recalcula el acumulado y la confiabilidad del conteo a partir de sus videos activos
-    # se llama al cancelar/reactivar para que el video que sale (o entra) deje de contar (o vuelva a contar)
+    # recalcula el acumulado y la confiabilidad del conteo a partir de sus videos activos se llama al cancelar/reactivar para que el video que sale (o entra) deje de contar (o vuelva a contar)
     conteo = db.query(Conteo).filter(Conteo.id == conteo_id).first()
     if not conteo:
         return
@@ -149,7 +148,7 @@ def recibir_resultado_ia(
     nombre_salida = f"{procesamiento_id}_anotado.mp4"
     ruta_salida = video_service.obtener_ruta_fisica(nombre_salida)
     try:
-        # copyfileobj escribe por bloques desde el temporal de Starlette; como el endpoint es sync
+        # copyfileobj escribe por bloques desde el temporal de Starlette, como el endpoint es sync
         # esto corre en el threadpool y no traba el event loop
         with open(ruta_salida, "wb") as f:
             shutil.copyfileobj(video_anotado.file, f, 1024 * 1024)
@@ -333,8 +332,7 @@ def registrar_procesamiento(
     if not acceso:
         raise HTTPException(status_code=403, detail="No tienes acceso a este campo de cultivo.")
 
-    # validamos el rango aca tambien, el front ya valida pero no hay que confiarse:
-    # una llamada directa a la API podria meter rangos chuecos o solapados e inflar el conteo
+    # validamos el rango aca tambien, el front ya valida pero no hay que confiarse: una llamada directa a la API podria meter rangos chuecos o solapados e inflar el conteo
     if surco_inicio < 1 or surco_fin < surco_inicio:
         raise HTTPException(
             status_code=400,
@@ -414,7 +412,7 @@ def listar_por_conteo(
     ).order_by(ProcesamientoVideo.created_at.desc()).all()
 
 
-# ojo: esto va antes de /{procesamiento_id} pa que FastAPI no lea "admin" como si fuera un id
+#esto va antes de /{procesamiento_id} pa que FastAPI no lea "admin" como si fuera un id
 
 @router.get("/admin/conteo/{conteo_id}", response_model=List[ProcesamientoResponse])
 def listar_por_conteo_admin(

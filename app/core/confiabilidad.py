@@ -1,7 +1,6 @@
 from typing import Optional
 
-# umbrales de confiabilidad, se tienen que cumplir las dos condiciones o baja de categoria (somos conservadores):
-#   alto: prom>=0.75 y baja<=0.15 · moderado: prom>=0.60 y baja<=0.30 · bajo: lo demas
+# umbrales de confiabilidad, se tienen que cumplir las dos condiciones o baja de categoria: alto: prom>=0.75 y baja<=0.15 · moderado: prom>=0.60 y baja<=0.30 · bajo: lo demas
 UMBRAL_ALTO_PROMEDIO = 0.75
 UMBRAL_ALTO_BAJA = 0.15
 UMBRAL_MOD_PROMEDIO = 0.60
