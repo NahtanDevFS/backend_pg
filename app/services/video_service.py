@@ -1,6 +1,7 @@
 import os
 import asyncio
 import base64
+import shutil
 import httpx
 from fastapi import UploadFile, HTTPException
 from sqlalchemy.orm import Session
@@ -16,6 +17,9 @@ MAX_VIDEO_SIZE_BYTES = 10 * 1024 * 1024 * 1024
 
 # de a cuanto leemos/escribimos al guardar: 1 MB
 CHUNK_SIZE = 1024 * 1024
+
+# tope de un chunk binario, la app manda 5 MB; dejamos 1 MB de holgura
+MAX_CHUNK_BYTES = 6 * 1024 * 1024
 
 # extensiones que dejamos pasar
 EXTENSIONES_PERMITIDAS = {"mp4", "mov", "avi", "mkv"}
@@ -190,10 +194,23 @@ def ensamblar_y_limpiar(procesamiento_id: int) -> str:
         raise ValueError("El archivo ensamblado no es un video válido.")
 
     # borra la carpeta de chunks, ya no se necesita
-    import shutil
-    shutil.rmtree(_dir_chunks(procesamiento_id), ignore_errors=True)
+    limpiar_chunks(procesamiento_id)
 
     return nombre
+
+
+def limpiar_chunks(procesamiento_id: int) -> None:
+    # borra los chunks de una subida terminada o cancelada pa que no se quede ocupando disco
+    d = os.path.join(settings.STORAGE_PATH, "chunks", str(procesamiento_id))
+    shutil.rmtree(d, ignore_errors=True)
+
+
+def ultima_actividad_chunks(procesamiento_id: int) -> float | None:
+    # timestamp del ultimo chunk que cayo, None si la subida nunca mando nada
+    d = os.path.join(settings.STORAGE_PATH, "chunks", str(procesamiento_id))
+    if not os.path.exists(d):
+        return None
+    return os.path.getmtime(d)
 
 
 #Helpers compartidos

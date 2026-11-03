@@ -1,9 +1,10 @@
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, BackgroundTasks, Header, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 import os
 import shutil
 import base64
@@ -27,8 +28,45 @@ def _recalcular_clasificaciones_conteo(conteo_id: int, db) -> None:
 
 router = APIRouter(prefix="/procesamientos", tags=["Procesamientos"])
 
+# tras este tiempo sin recibir chunks damos la subida por abandonada y liberamos sus surcos
+HORAS_SUBIDA_ABANDONADA = 24
+
 
 #Helpers
+
+def _anular_subidas_abandonadas(conteo_id: int, db: Session) -> None:
+    # cancela las subidas pendientes del conteo que llevan rato sin actividad (app cerrada, telefono perdido)
+    estado_pendiente = db.query(EstadoProcesamiento).filter(
+        EstadoProcesamiento.nombre == "pendiente"
+    ).first()
+    estado_cancelado = db.query(EstadoProcesamiento).filter(
+        EstadoProcesamiento.nombre == "cancelado"
+    ).first()
+    if not estado_pendiente or not estado_cancelado:
+        return
+
+    pendientes = db.query(ProcesamientoVideo).filter(
+        ProcesamientoVideo.conteo_id == conteo_id,
+        ProcesamientoVideo.activo == True,
+        ProcesamientoVideo.estado_id == estado_pendiente.id,
+    ).all()
+
+    limite = datetime.now(timezone.utc) - timedelta(hours=HORAS_SUBIDA_ABANDONADA)
+    hubo_cambios = False
+    for proc in pendientes:
+        ultima = video_service.ultima_actividad_chunks(proc.id)
+        ultima_dt = (
+            datetime.fromtimestamp(ultima, tz=timezone.utc) if ultima is not None else proc.created_at
+        )
+        if ultima_dt < limite:
+            proc.estado_id = estado_cancelado.id
+            proc.activo = False
+            video_service.limpiar_chunks(proc.id)
+            hubo_cambios = True
+
+    if hubo_cambios:
+        db.commit()
+
 
 def _get_procesamiento_del_usuario(procesamiento_id: int, usuario: Usuario, db: Session, incluir_inactivos: bool = False) -> ProcesamientoVideo:
     # trae el procesamiento chequeando que el operador tenga acceso; incluir_inactivos deja leer los cancelados
@@ -347,6 +385,8 @@ def registrar_procesamiento(
             ),
         )
 
+    _anular_subidas_abandonadas(conteo_id, db)
+
     # ningun video activo del conteo puede pisar el mismo rango, cada surco se cuenta una sola vez
     conflicto = db.query(ProcesamientoVideo).filter(
         ProcesamientoVideo.conteo_id == conteo_id,
@@ -406,6 +446,9 @@ def listar_por_conteo(
     if not acceso:
         raise HTTPException(status_code=403, detail="No tienes acceso a este campo de cultivo.")
 
+    # la app arma la grilla de surcos con esta lista, asi que aca ya no deben salir las abandonadas
+    _anular_subidas_abandonadas(conteo_id, db)
+
     return db.query(ProcesamientoVideo).filter(
         ProcesamientoVideo.conteo_id == conteo_id,
         ProcesamientoVideo.activo == True
@@ -450,6 +493,7 @@ def cancelar_procesamiento_admin(
     proc.updated_by = admin.id
 
     progreso.limpiar_progreso(procesamiento_id)
+    video_service.limpiar_chunks(procesamiento_id)
 
     # flush pa que el activo=False lo vea la query de _recalcular_conteo
     db.flush()
@@ -685,16 +729,16 @@ def iniciar_subida_chunks(
     return proc
 
 
-# recibe un pedazo del video en base64, y cuando llega el ultimo ensambla y dispara Modal
-@router.post("/{procesamiento_id}/video/chunk")
-async def subir_chunk(
+# guarda un pedazo del video y cuando llega el ultimo ensambla y dispara Modal
+# es sync y corre en el threadpool: toca disco y BD, y ensamblar puede tardar, no debe trabar el event loop
+def _recibir_chunk(
     procesamiento_id: int,
+    numero: int,
+    data: bytes,
     background_tasks: BackgroundTasks,
-    numero: int = Form(...),
-    data_b64: str = Form(...),
-    db: Session = Depends(get_db),
-    usuario: Usuario = Depends(requiere_operador),
-):
+    db: Session,
+    usuario: Usuario,
+) -> dict:
     proc = _get_procesamiento_del_usuario(procesamiento_id, usuario, db)
 
     estado_pendiente = db.query(EstadoProcesamiento).filter(
@@ -730,7 +774,7 @@ async def subir_chunk(
             detail="Primero llama a /iniciar-chunks para registrar la extensión y total de chunks."
         )
     extension, total_chunks = meta
-    print(f"[CHUNK {procesamiento_id}] recibido numero={numero}, total_chunks={total_chunks}, len(data_b64)={len(data_b64)}")
+    print(f"[CHUNK {procesamiento_id}] recibido numero={numero}, total_chunks={total_chunks}, bytes={len(data)}")
 
     if numero < 0 or numero >= total_chunks:
         print(f"[CHUNK {procesamiento_id}] FALLO rango: numero={numero} fuera de 0-{total_chunks-1}")
@@ -738,11 +782,6 @@ async def subir_chunk(
             status_code=400,
             detail=f"Número de chunk inválido. Esperado 0–{total_chunks - 1}, recibido {numero}."
         )
-
-    try:
-        data = base64.b64decode(data_b64)
-    except Exception:
-        raise HTTPException(status_code=400, detail="El chunk no es base64 válido.")
 
     video_service.guardar_chunk(procesamiento_id, numero, data)
     print(f"[CHUNK {procesamiento_id}] guardado chunk {numero}, bytes_reales={len(data)}")
@@ -781,6 +820,50 @@ async def subir_chunk(
         "total_chunks": total_chunks,
         "completo": True,
     }
+
+
+# version con base64 (legacy), se queda pa los APK que todavia no usan chunk-bin
+@router.post("/{procesamiento_id}/video/chunk")
+async def subir_chunk(
+    procesamiento_id: int,
+    background_tasks: BackgroundTasks,
+    numero: int = Form(...),
+    data_b64: str = Form(...),
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(requiere_operador),
+):
+    try:
+        data = await run_in_threadpool(base64.b64decode, data_b64)
+    except Exception:
+        raise HTTPException(status_code=400, detail="El chunk no es base64 válido.")
+
+    return await run_in_threadpool(
+        _recibir_chunk, procesamiento_id, numero, data, background_tasks, db, usuario
+    )
+
+
+# recibe el chunk en binario crudo en el body, el numero va en el query
+@router.post("/{procesamiento_id}/video/chunk-bin")
+async def subir_chunk_binario(
+    procesamiento_id: int,
+    numero: int,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(requiere_operador),
+):
+    # leemos por partes pa cortar de una si alguien manda de mas
+    data = bytearray()
+    async for parte in request.stream():
+        data += parte
+        if len(data) > video_service.MAX_CHUNK_BYTES:
+            raise HTTPException(status_code=413, detail="El chunk supera el tamaño permitido.")
+    if not data:
+        raise HTTPException(status_code=400, detail="El chunk viene vacío.")
+
+    return await run_in_threadpool(
+        _recibir_chunk, procesamiento_id, numero, bytes(data), background_tasks, db, usuario
+    )
 
 
 @router.get("/{procesamiento_id}/video/estado-subida")
@@ -823,10 +906,11 @@ def cancelar_procesamiento(
     estado_actual = db.query(EstadoProcesamiento).filter(
         EstadoProcesamiento.id == proc.estado_id
     ).first()
-    if estado_actual.nombre not in ("pendiente", "procesando", "completado"):
+    # error tambien entra: sin esto el operador no podia liberar los surcos de un video que fallo
+    if estado_actual.nombre not in ("pendiente", "procesando", "completado", "error"):
         raise HTTPException(
             status_code=400,
-            detail="Solo se pueden cancelar procesamientos en estado pendiente, procesando o completado.",
+            detail="Solo se pueden cancelar procesamientos en estado pendiente, procesando, completado o error.",
         )
 
     estado_cancelado = db.query(EstadoProcesamiento).filter(
@@ -839,8 +923,9 @@ def cancelar_procesamiento(
     proc.activo = False
     proc.updated_by = usuario.id
 
-    # limpia el progreso efimero si habia
+    # limpia el progreso efimero si habia y los chunks de la subida si quedo a medias
     progreso.limpiar_progreso(procesamiento_id)
+    video_service.limpiar_chunks(procesamiento_id)
 
     # flush pa que el activo=False lo vea la query de _recalcular_conteo
     db.flush()
