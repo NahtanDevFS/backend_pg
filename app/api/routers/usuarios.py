@@ -29,10 +29,14 @@ def crear_usuario(
 
 @router.get("/", response_model=List[schemas.UsuarioResponse], summary="Listar usuarios (solo Administrador)")
 def listar_usuarios(
+        incluir_inactivos: bool = False,
         db: Session = Depends(get_db),
         _: Usuario = Depends(requiere_admin)
 ):
-    return db.query(Usuario).filter(Usuario.activo == True).all()
+    query = db.query(Usuario)
+    if not incluir_inactivos:
+        query = query.filter(Usuario.activo == True)
+    return query.all()
 
 
 @router.get("/me", response_model=schemas.UsuarioResponse)
@@ -146,3 +150,20 @@ def desactivar_usuario(
     usuario.updated_by = admin.id
     db.commit()
     return {"mensaje": "Usuario desactivado correctamente."}
+
+
+@router.patch("/{usuario_id}/reactivar", summary="Reactivar usuario (solo Administrador)")
+def reactivar_usuario(
+        usuario_id: int,
+        db: Session = Depends(get_db),
+        admin: Usuario = Depends(requiere_admin)
+):
+    # vuelve con el mismo rol y contraseña que tenia al desactivarlo
+    usuario = db.query(Usuario).filter(Usuario.id == usuario_id, Usuario.activo == False).first()
+    if not usuario:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado o ya está activo.")
+
+    usuario.activo = True
+    usuario.updated_by = admin.id
+    db.commit()
+    return {"mensaje": "Usuario reactivado correctamente."}
