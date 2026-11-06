@@ -14,7 +14,7 @@ from app.models.models import (
     Usuario, CampoCultivo, Conteo,
     ProcesamientoVideo, ResultadoIa, EstadoProcesamiento, CampoCultivoOperador, EstadoConteo
 )
-from app.schemas.procesamiento import ProcesamientoResponse, AjusteResultadoRequest
+from app.schemas.procesamiento import ProcesamientoResponse, AjusteResultadoRequest, EditarSurcosRequest
 from app.api.deps import obtener_usuario_actual, requiere_admin, requiere_operador
 from app.services import video_service
 from app.core.firma import validar_token_descarga
@@ -935,6 +935,72 @@ def cancelar_procesamiento(
     db.commit()
 
     return {"detail": "Procesamiento cancelado correctamente."}
+
+# corrige el rango de surcos de un video ya procesado, el rango no entra en el calculo asi que el total no cambia
+@router.patch("/{procesamiento_id}/surcos")
+def editar_surcos(
+    procesamiento_id: int,
+    datos: EditarSurcosRequest,
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(requiere_operador),
+):
+    proc = _get_procesamiento_del_usuario(procesamiento_id, usuario, db)
+
+    if not proc.resultado:
+        raise HTTPException(status_code=400, detail="Este procesamiento aún no tiene resultado de IA.")
+
+    conteo = db.query(Conteo).filter(Conteo.id == proc.conteo_id).first()
+    estado_conteo = db.query(EstadoConteo).filter(
+        EstadoConteo.id == conteo.estado_id
+    ).first()
+    if estado_conteo and estado_conteo.nombre == "completado":
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "No se pueden editar los surcos de un conteo ya completado. "
+                "Contacta a un administrador para reabrir el conteo si necesitas corregirlo."
+            ),
+        )
+
+    if datos.surco_inicio < 1 or datos.surco_fin < datos.surco_inicio:
+        raise HTTPException(
+            status_code=400,
+            detail="Rango de surcos inválido: el inicio debe ser >= 1 y el fin >= el inicio.",
+        )
+    if datos.surco_fin > conteo.total_surcos:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"El surco final ({datos.surco_fin}) supera el total de surcos del "
+                f"conteo ({conteo.total_surcos})."
+            ),
+        )
+
+    _anular_subidas_abandonadas(proc.conteo_id, db)
+
+    # igual que al registrar: cada surco se cuenta una sola vez, sin compararlo consigo mismo
+    conflicto = db.query(ProcesamientoVideo).filter(
+        ProcesamientoVideo.conteo_id == proc.conteo_id,
+        ProcesamientoVideo.activo == True,
+        ProcesamientoVideo.id != proc.id,
+        ProcesamientoVideo.surco_inicio <= datos.surco_fin,
+        ProcesamientoVideo.surco_fin >= datos.surco_inicio,
+    ).first()
+    if conflicto:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"El rango de surcos {datos.surco_inicio}–{datos.surco_fin} se solapa con otro "
+                f"video del conteo (surcos {conflicto.surco_inicio}–{conflicto.surco_fin})."
+            ),
+        )
+
+    proc.surco_inicio = datos.surco_inicio
+    proc.surco_fin = datos.surco_fin
+    proc.updated_by = usuario.id
+    db.commit()
+
+    return {"detail": "Surcos actualizados correctamente."}
 
 # el operador corrige a mano el conteo de la IA (por si hubo oclusiones) y recalcula el acumulado
 @router.post("/{procesamiento_id}/ajustar")

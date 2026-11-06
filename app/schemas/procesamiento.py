@@ -8,6 +8,11 @@ class AjusteResultadoRequest(BaseModel):
     observaciones: Optional[str] = None
 
 
+class EditarSurcosRequest(BaseModel):
+    surco_inicio: int
+    surco_fin: int
+
+
 class ResultadoIaResponse(BaseModel):
     id: int
     conteo_ia: int
